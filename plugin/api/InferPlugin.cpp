@@ -30,7 +30,6 @@ using namespace nvinfer1::plugin;
 
 #include "batchTilePlugin.h"
 #include "batchedNMSPlugin.h"
-#include "clipPlugin.h"
 #include "coordConvACPlugin.h"
 #include "cropAndResizePlugin.h"
 #include "decodeBbox3D.h"
@@ -41,9 +40,7 @@ using namespace nvinfer1::plugin;
 #include "flattenConcat.h"
 #include "generateDetectionPlugin.h"
 #include "gridAnchorPlugin.h"
-#include "groupNormPlugin.h"
 #include "instanceNormalizationPlugin.h"
-#include "layerNormPlugin.h"
 #include "lReluPlugin.h"
 #include "multilevelCropAndResizePlugin.h"
 #include "multilevelProposeROIPlugin.h"
@@ -59,12 +56,9 @@ using namespace nvinfer1::plugin;
 #include "regionPlugin.h"
 #include "reorgPlugin.h"
 #include "resizeNearestPlugin.h"
-#include "roiAlignPlugin.h"
 #include "scatterPlugin.h"
-#include "seqLen2SpatialPlugin.h"
 #include "specialSlicePlugin.h"
 #include "split.h"
-#include "splitGeLUPlugin.h"
 #include "voxelGenerator.h"
 
 using nvinfer1::plugin::RPROIParams;
@@ -178,7 +172,6 @@ extern "C"
         initializePlugin<nvinfer1::plugin::BatchTilePluginCreator>(logger, libNamespace);
         initializePlugin<nvinfer1::plugin::BatchedNMSPluginCreator>(logger, libNamespace);
         initializePlugin<nvinfer1::plugin::BatchedNMSDynamicPluginCreator>(logger, libNamespace);
-        initializePlugin<nvinfer1::plugin::ClipPluginCreator>(logger, libNamespace);
         initializePlugin<nvinfer1::plugin::CoordConvACPluginCreator>(logger, libNamespace);
         initializePlugin<nvinfer1::plugin::CropAndResizePluginCreator>(logger, libNamespace);
         initializePlugin<nvinfer1::plugin::CropAndResizeDynamicPluginCreator>(logger, libNamespace);
@@ -192,9 +185,7 @@ extern "C"
         initializePlugin<nvinfer1::plugin::GenerateDetectionPluginCreator>(logger, libNamespace);
         initializePlugin<nvinfer1::plugin::GridAnchorPluginCreator>(logger, libNamespace);
         initializePlugin<nvinfer1::plugin::GridAnchorRectPluginCreator>(logger, libNamespace);
-        initializePlugin<nvinfer1::plugin::GroupNormPluginCreator>(logger, libNamespace);
         initializePlugin<nvinfer1::plugin::InstanceNormalizationPluginCreator>(logger, libNamespace);
-        initializePlugin<nvinfer1::plugin::LayerNormPluginCreator>(logger, libNamespace);
         initializePlugin<nvinfer1::plugin::LReluPluginCreator>(logger, libNamespace);
         initializePlugin<nvinfer1::plugin::MultilevelCropAndResizePluginCreator>(logger, libNamespace);
         initializePlugin<nvinfer1::plugin::MultilevelProposeROIPluginCreator>(logger, libNamespace);
@@ -212,11 +203,8 @@ extern "C"
         initializePlugin<nvinfer1::plugin::ReorgPluginCreator>(logger, libNamespace);
         initializePlugin<nvinfer1::plugin::ResizeNearestPluginCreator>(logger, libNamespace);
         initializePlugin<nvinfer1::plugin::RPROIPluginCreator>(logger, libNamespace);
-        initializePlugin<nvinfer1::plugin::ROIAlignPluginCreator>(logger, libNamespace);
         initializePlugin<nvinfer1::plugin::ScatterNDPluginCreator>(logger, libNamespace);
-        initializePlugin<nvinfer1::plugin::SeqLen2SpatialPluginCreator>(logger, libNamespace);
         initializePlugin<nvinfer1::plugin::SpecialSlicePluginCreator>(logger, libNamespace);
-        initializePlugin<nvinfer1::plugin::SplitGeLUPluginCreator>(logger, libNamespace);
         initializePlugin<nvinfer1::plugin::SplitPluginCreator>(logger, libNamespace);
         initializePlugin<nvinfer1::plugin::VoxelGeneratorPluginCreator>(logger, libNamespace);
         return true;

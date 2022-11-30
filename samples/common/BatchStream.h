@@ -91,7 +91,7 @@ public:
 
     nvinfer1::Dims getDims() const override
     {
-        return nvinfer1::Dims{4, {mBatchSize, mDims.d[0], mDims.d[1], mDims.d[2]}};
+        return Dims{4, {mBatchSize, mDims.d[0], mDims.d[1], mDims.d[2]}};
     }
 
 private:
@@ -145,7 +145,7 @@ private:
     int mBatchSize{0};
     int mBatchCount{0}; //!< The batch that will be read on the next invocation of next()
     int mMaxBatches{0};
-    nvinfer1::Dims mDims{};
+    Dims mDims{};
     std::vector<float> mData{};
     std::vector<float> mLabels{};
 };
@@ -161,16 +161,18 @@ public:
         , mSuffix(suffix)
         , mDataDir(directories)
     {
-        std::ifstream file(locateFile(mPrefix + std::string("0") + mSuffix, mDataDir).c_str(), std::ios::binary);
-        ASSERT(file.good());
+        FILE* file = fopen(locateFile(mPrefix + std::string("0") + mSuffix, mDataDir).c_str(), "rb");
+        ASSERT(file != nullptr);
         int d[4];
-        file.read(reinterpret_cast<char*>(d), 4 * sizeof(int32_t));
+        size_t readSize = fread(d, sizeof(int), 4, file);
+        ASSERT(readSize == 4);
         mDims.nbDims = 4;  // The number of dimensions.
         mDims.d[0] = d[0]; // Batch Size
         mDims.d[1] = d[1]; // Channels
         mDims.d[2] = d[2]; // Height
         mDims.d[3] = d[3]; // Width
         ASSERT(mDims.d[0] > 0 && mDims.d[1] > 0 && mDims.d[2] > 0 && mDims.d[3] > 0);
+        fclose(file);
 
         mImageSize = mDims.d[1] * mDims.d[2] * mDims.d[3];
         mBatch.resize(mBatchSize * mImageSize, 0);
@@ -294,16 +296,22 @@ private:
         if (mListFile.empty())
         {
             std::string inputFileName = locateFile(mPrefix + std::to_string(mFileCount++) + mSuffix, mDataDir);
-            std::ifstream file(inputFileName.c_str(), std::ios::binary);
+            FILE* file = fopen(inputFileName.c_str(), "rb");
             if (!file)
             {
                 return false;
             }
+
             int d[4];
-            file.read(reinterpret_cast<char*>(d), 4 * sizeof(int32_t));
+            size_t readSize = fread(d, sizeof(int), 4, file);
+            ASSERT(readSize == 4);
             ASSERT(mDims.d[0] == d[0] && mDims.d[1] == d[1] && mDims.d[2] == d[2] && mDims.d[3] == d[3]);
-            file.read(reinterpret_cast<char*>(getFileBatch()), sizeof(float) * mDims.d[0] * mImageSize);
-            file.read(reinterpret_cast<char*>(getFileLabels()), sizeof(float) * mDims.d[0]);
+            size_t readInputCount = fread(getFileBatch(), sizeof(float), mDims.d[0] * mImageSize, file);
+            ASSERT(readInputCount == size_t(mDims.d[0] * mImageSize));
+            size_t readLabelCount = fread(getFileLabels(), sizeof(float), mDims.d[0], file);
+            ASSERT(readLabelCount == 0 || readLabelCount == size_t(mDims.d[0]));
+
+            fclose(file);
         }
         else
         {

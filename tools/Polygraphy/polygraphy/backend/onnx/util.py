@@ -17,9 +17,9 @@
 import copy
 from collections import OrderedDict
 
-from polygraphy import mod, util, constants
+from polygraphy import mod, util
 from polygraphy.common import TensorMetadata
-from polygraphy.logger import G_LOGGER, LogMode
+from polygraphy.logger import G_LOGGER
 
 gs = mod.lazy_import("onnx_graphsurgeon")
 numpy_helper = mod.lazy_import("onnx.numpy_helper")
@@ -41,19 +41,18 @@ def get_num_nodes(model):
     return _get_num_graph_nodes(model.graph)
 
 
-def all_tensor_names(model, include_inputs=None):
-    include_inputs = util.default(include_inputs, False)
-
+def all_tensor_names(model):
     all_outputs = [output for node in model.graph.node if node.op_type != "Constant" for output in node.output]
-    if include_inputs:
-        all_outputs += [inp.name for inp in model.graph.input]
     all_outputs = util.unique_list(all_outputs)
     return all_outputs
 
 
-def _check_has_tensors(model, outputs):
-    all_outputs = all_tensor_names(model, include_inputs=True)
-    util.check_sequence_contains(all_outputs, outputs, name="the model", items_name="outputs", check_extra=False)
+def check_outputs_not_found(not_found, all_outputs):
+    if not_found:
+        sep = "\n\t"
+        G_LOGGER.critical(
+            f"The following outputs were not found: {not_found}.\nNote: Available tensors:{sep}{sep.join(all_outputs)}"
+        )
 
 
 def mark_outputs(model, outputs):
@@ -61,16 +60,20 @@ def mark_outputs(model, outputs):
     while model.graph.output:
         model.graph.output.pop()
 
-    outputs = util.unique_list(outputs)
-    _check_has_tensors(model, outputs)
-
+    all_outputs = all_tensor_names(model)
+    all_outputs_set = set(all_outputs)
     value_info_map = {t.name: t for t in model.graph.value_info}
-    out_tensors = []
-    for output in outputs:
-        value_info = value_info_map.get(output, onnx.helper.make_empty_tensor_value_info(output))
-        out_tensors.append(value_info)
 
-    G_LOGGER.ultra_verbose(f"Marked output tensors in ONNX model: {out_tensors}")
+    out_tensors = []
+    not_found = set()
+    for output in outputs:
+        if output in all_outputs_set:
+            value_info = value_info_map.get(output, onnx.helper.make_empty_tensor_value_info(output))
+            out_tensors.append(value_info)
+        else:
+            not_found.add(output)
+
+    check_outputs_not_found(not_found, all_outputs)
     model.graph.output.extend(out_tensors)
     return model
 
@@ -82,18 +85,22 @@ def mark_layerwise(model):
 
 
 def unmark_outputs(model, outputs):
-    outputs = util.unique_list(outputs)
-    _check_has_tensors(model, outputs)
+    outputs = set(outputs)
 
     cur_outputs = []
     while model.graph.output:
         cur_outputs.append(model.graph.output.pop())
     cur_outputs = list(reversed(cur_outputs))  # Preserve ordering
 
+    unmarked_outputs = set()
     for out in cur_outputs:
         if out.name not in outputs:
             model.graph.output.extend([out])
+        else:
+            unmarked_outputs.add(out.name)
 
+    not_found = outputs - unmarked_outputs
+    check_outputs_not_found(not_found, [t.name for t in model.graph.output])
     return model
 
 
@@ -103,12 +110,10 @@ def get_shape(tensor):
         shape = tensor.dims
     else:
         for dim in tensor.type.tensor_type.shape.dim:
-            if dim.HasField("dim_param"):
+            if dim.dim_param:
                 shape.append(dim.dim_param)
-            elif dim.HasField("dim_value"):
-                shape.append(dim.dim_value)
             else:
-                shape.append(-1)
+                shape.append(dim.dim_value)
     return shape
 
 
@@ -123,11 +128,7 @@ def get_dtype(tensor):
 
 
 def get_values(tensor):
-    try:
-        return numpy_helper.to_array(tensor)
-    except Exception as err:
-        G_LOGGER.error(f"Failed to load weights.\nNote: Error was: {err}", mode=LogMode.ONCE)
-    return "<error: failed to load weights>"
+    return numpy_helper.to_array(tensor)
 
 
 def get_tensor_metadata(tensors):

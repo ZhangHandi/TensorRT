@@ -29,10 +29,9 @@
 #include "common.h"
 #include "half.h"
 #include "logger.h"
-#include "parserOnnxConfig.h"
 
+#include "NvCaffeParser.h"
 #include "NvInfer.h"
-#include "NvOnnxParser.h"
 
 #include <algorithm>
 #include <cmath>
@@ -42,18 +41,16 @@
 #include <sstream>
 
 #include <array>
-#include <cstdlib>
 #include <random>
 #include <string>
 #include <utility>
 #include <vector>
 
-using namespace nvinfer1;
 using samplesCommon::SampleUniquePtr;
 
-std::string const gSampleName = "TensorRT.sample_io_formats";
+const std::string gSampleName = "TensorRT.sample_io_formats";
 
-int32_t divUp(int32_t a, int32_t b)
+int divUp(int a, int b)
 {
     return (a + b - 1) / b;
 }
@@ -71,7 +68,7 @@ class BufferDesc
 public:
     BufferDesc() = default;
 
-    BufferDesc(nvinfer1::Dims dims, int32_t dataWidth, TensorFormat format)
+    BufferDesc(nvinfer1::Dims dims, int dataWidth, TensorFormat format)
     {
         this->dataWidth = dataWidth;
         if (format == TensorFormat::kLINEAR)
@@ -79,44 +76,38 @@ public:
             this->dims[0] = dims.d[0];
             this->dims[1] = dims.d[1];
             this->dims[2] = dims.d[2];
-            this->dims[3] = dims.d[3];
-            this->dims[4] = 1;
+            this->dims[3] = 1;
         }
         else if (format == TensorFormat::kCHW2)
         {
-
-            this->dims[0] = dims.d[0];
-            this->dims[1] = divUp(dims.d[1], 2);
+            this->dims[0] = divUp(dims.d[0], 2);
+            this->dims[1] = dims.d[1];
             this->dims[2] = dims.d[2];
-            this->dims[3] = dims.d[3];
-            this->dims[4] = 2;
+            this->dims[3] = 2;
             this->scalarPerVector = 2;
         }
         else if (format == TensorFormat::kCHW4)
         {
-            this->dims[0] = dims.d[0];
-            this->dims[1] = divUp(dims.d[1], 4);
+            this->dims[0] = divUp(dims.d[0], 4);
+            this->dims[1] = dims.d[1];
             this->dims[2] = dims.d[2];
-            this->dims[3] = dims.d[3];
-            this->dims[4] = 4;
+            this->dims[3] = 4;
             this->scalarPerVector = 4;
         }
         else if (format == TensorFormat::kCHW32)
         {
-            this->dims[0] = dims.d[0];
-            this->dims[1] = divUp(dims.d[1], 32);
+            this->dims[0] = divUp(dims.d[0], 32);
+            this->dims[1] = dims.d[1];
             this->dims[2] = dims.d[2];
-            this->dims[3] = dims.d[3];
-            this->dims[4] = 32;
+            this->dims[3] = 32;
             this->scalarPerVector = 32;
         }
         else if (format == TensorFormat::kHWC8)
         {
-            this->dims[0] = dims.d[0];
+            this->dims[0] = dims.d[1];
             this->dims[1] = dims.d[2];
-            this->dims[2] = dims.d[3];
-            this->dims[3] = divUp(dims.d[1], 8) * 8;
-            this->dims[4] = 1;
+            this->dims[2] = divUp(dims.d[0], 8) * 8;
+            this->dims[3] = 1;
             this->scalarPerVector = 8;
             this->channelPivot = true;
         }
@@ -125,17 +116,17 @@ public:
     // [(C+x-1)/x][H][W][x]
     // or
     // [H][W][(C+x-1)/x*x][1]
-    int32_t dims[5] = {1, 1, 1, 1, 1};
-    int32_t dataWidth = 1;
-    int32_t scalarPerVector = 1;
+    int dims[4] = {1, 1, 1, 1};
+    int dataWidth = 1;
+    int scalarPerVector = 1;
 
     bool channelPivot = false;
 
-    int32_t getElememtSize()
+    int getElememtSize()
     {
-        return dims[0] * dims[1] * dims[2] * dims[3] * dims[4];
+        return dims[0] * dims[1] * dims[2] * dims[3];
     }
-    int32_t getBufferSize()
+    int getBufferSize()
     {
         return getElememtSize() * dataWidth;
     }
@@ -149,27 +140,14 @@ public:
         dims.d[0] = 1;
         dims.d[1] = 1;
         dims.d[2] = 1;
-        dims.d[3] = 1;
     }
 
-    SampleBuffer(nvinfer1::Dims dims, int32_t dataWidth, TensorFormat format, bool isInput)
+    SampleBuffer(nvinfer1::Dims dims, int dataWidth, TensorFormat format)
         : dims(dims)
         , dataWidth(dataWidth)
         , format(format)
-        , isInput(isInput)
+        , desc(dims, dataWidth, format)
     {
-
-        // Output buffer is unsqueezed to 4D in order to reuse the BufferDesc class
-        if (isInput == false)
-        {
-            dims.d[2] = dims.d[0];
-            dims.d[3] = dims.d[1];
-            dims.d[0] = 1;
-            dims.d[1] = 1;
-        }
-
-        desc = BufferDesc(dims, dataWidth, format);
-
         if (nullptr == buffer)
         {
             buffer = new uint8_t[getBufferSize()]();
@@ -189,7 +167,6 @@ public:
         this->dataWidth = sampleBuffer.dataWidth;
         this->desc = sampleBuffer.desc;
         this->format = sampleBuffer.format;
-        this->isInput = sampleBuffer.isInput;
         this->buffer = sampleBuffer.buffer;
         sampleBuffer.buffer = nullptr;
 
@@ -207,17 +184,15 @@ public:
 
     nvinfer1::Dims dims;
 
-    int32_t dataWidth{1};
+    int dataWidth{1};
 
     TensorFormat format{TensorFormat::kLINEAR};
-
-    bool isInput{true};
 
     BufferDesc desc;
 
     uint8_t* buffer = nullptr;
 
-    int32_t getBufferSize()
+    int getBufferSize()
     {
         return desc.getBufferSize();
     }
@@ -226,12 +201,12 @@ public:
 //!
 //! \brief  The SampleIOFormats class implements the I/O formats sample
 //!
-//! \details It creates the network using the Onnx parser.
+//! \details It creates the network using the Caffe parser.
 //!
 class SampleIOFormats
 {
 public:
-    SampleIOFormats(samplesCommon::OnnxSampleParams const& params)
+    SampleIOFormats(const samplesCommon::CaffeSampleParams& params)
         : mParams(params)
     {
     }
@@ -239,12 +214,17 @@ public:
     //!
     //! \brief Builds the network engine
     //!
-    bool build(int32_t dataWidth);
+    bool build(int dataWidth);
 
     //!
     //! \brief Runs the TensorRT inference engine for this sample
     //!
     bool infer(SampleBuffer& inputBuf, SampleBuffer& outputBuf);
+
+    //!
+    //! \brief Used to clean up any state created in the sample class
+    //!
+    bool teardown();
 
     //!
     //! \brief Used to run CPU reference and get result
@@ -259,26 +239,26 @@ public:
     //!
     //! \brief Reads the digit map from the file
     //!
-    bool readDigits(SampleBuffer& buffer, int32_t groundTruthDigit);
+    bool readDigits(SampleBuffer& buffer, int groundTruthDigit);
 
     //!
     //! \brief Verifies that the output is correct and prints it
     //!
     template <typename T>
-    bool verifyOutput(SampleBuffer& outputBuf, int32_t groundTruthDigit) const;
+    bool verifyOutput(SampleBuffer& outputBuf, int groundTruthDigit) const;
 
 private:
     //!
-    //! \brief Parses an ONNX model for MNIST and creates a TensorRT network
+    //! \brief uses a Caffe parser to create the single layer Network and marks the
+    //!        output layers
     //!
-    bool constructNetwork(SampleUniquePtr<nvinfer1::IBuilder>& builder,
-        SampleUniquePtr<nvinfer1::INetworkDefinition>& network, SampleUniquePtr<nvinfer1::IBuilderConfig>& config,
-        SampleUniquePtr<nvonnxparser::IParser>& parser);
+    bool constructNetwork(
+        SampleUniquePtr<nvcaffeparser1::ICaffeParser>& parser, SampleUniquePtr<nvinfer1::INetworkDefinition>& network);
 
     std::shared_ptr<nvinfer1::ICudaEngine> mEngine{nullptr}; //!< The TensorRT engine used to run the network
 
 public:
-    samplesCommon::OnnxSampleParams mParams;
+    samplesCommon::CaffeSampleParams mParams;
 
     nvinfer1::Dims mInputDims; //!< The dimensions of the input to the network.
 
@@ -286,7 +266,9 @@ public:
 
     TensorFormat mTensorFormat{TensorFormat::kLINEAR};
 
-    int32_t mDigit;
+    SampleUniquePtr<nvcaffeparser1::IBinaryProtoBlob> mMeanBlob;
+
+    int mDigit;
 };
 
 //!
@@ -297,17 +279,22 @@ public:
 //!
 //! \return true if the engine was created successfully and false otherwise
 //!
-bool SampleIOFormats::build(int32_t dataWidth)
+bool SampleIOFormats::build(int dataWidth)
 {
     auto builder = SampleUniquePtr<nvinfer1::IBuilder>(nvinfer1::createInferBuilder(sample::gLogger.getTRTLogger()));
     if (!builder)
     {
         return false;
     }
-    auto const networkFlags = 1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
 
-    auto network = SampleUniquePtr<nvinfer1::INetworkDefinition>(builder->createNetworkV2(networkFlags));
+    auto network = SampleUniquePtr<nvinfer1::INetworkDefinition>(builder->createNetworkV2(0));
     if (!network)
+    {
+        return false;
+    }
+
+    auto parser = SampleUniquePtr<nvcaffeparser1::ICaffeParser>(nvcaffeparser1::createCaffeParser());
+    if (!parser)
     {
         return false;
     }
@@ -318,21 +305,15 @@ bool SampleIOFormats::build(int32_t dataWidth)
         return false;
     }
 
-    auto parser
-        = SampleUniquePtr<nvonnxparser::IParser>(nvonnxparser::createParser(*network, sample::gLogger.getTRTLogger()));
-    if (!parser)
+    if (!constructNetwork(parser, network))
     {
         return false;
     }
 
-    auto constructed = constructNetwork(builder, network, config, parser);
-    if (!constructed)
-    {
-        return false;
-    }
+    network->getInput(0)->setAllowedFormats(static_cast<TensorFormats>(1 << static_cast<int>(mTensorFormat)));
+    network->getOutput(0)->setAllowedFormats(static_cast<TensorFormats>(1 << static_cast<int>(mTensorFormat)));
 
-    network->getInput(0)->setAllowedFormats(static_cast<TensorFormats>(1 << static_cast<int32_t>(mTensorFormat)));
-    network->getOutput(0)->setAllowedFormats(1U << static_cast<int32_t>(TensorFormat::kLINEAR));
+    builder->setMaxBatchSize(1);
 
     mEngine.reset();
 
@@ -341,7 +322,6 @@ bool SampleIOFormats::build(int32_t dataWidth)
         config->setFlag(BuilderFlag::kINT8);
         network->getInput(0)->setType(DataType::kINT8);
         network->getOutput(0)->setType(DataType::kINT8);
-        samplesCommon::setAllDynamicRanges(network.get(), 127.0f, 127.0f);
     }
     if (dataWidth == 2)
     {
@@ -381,35 +361,58 @@ bool SampleIOFormats::build(int32_t dataWidth)
 
     ASSERT(network->getNbInputs() == 1);
     mInputDims = network->getInput(0)->getDimensions();
-    ASSERT(mInputDims.nbDims == 4);
+    ASSERT(mInputDims.nbDims == 3);
 
     ASSERT(network->getNbOutputs() == 1);
     mOutputDims = network->getOutput(0)->getDimensions();
-    ASSERT(mOutputDims.nbDims == 2);
+    ASSERT(mOutputDims.nbDims == 3);
 
     return true;
 }
 
 //!
-//! \brief Uses a ONNX parser to create the Onnx MNIST Network and marks the
+//! \brief Uses a caffe parser to create the single layer Network and marks the
 //!        output layers
 //!
-//! \param network Pointer to the network that will be populated with the Onnx MNIST network
-//!
-//! \param builder Pointer to the engine builder
-//!
-bool SampleIOFormats::constructNetwork(SampleUniquePtr<nvinfer1::IBuilder>& builder,
-    SampleUniquePtr<nvinfer1::INetworkDefinition>& network, SampleUniquePtr<nvinfer1::IBuilderConfig>& config,
-    SampleUniquePtr<nvonnxparser::IParser>& parser)
+bool SampleIOFormats::constructNetwork(
+    SampleUniquePtr<nvcaffeparser1::ICaffeParser>& parser, SampleUniquePtr<nvinfer1::INetworkDefinition>& network)
 {
-    auto parsed = parser->parseFromFile(locateFile(mParams.onnxFileName, mParams.dataDirs).c_str(),
-        static_cast<int32_t>(sample::gLogger.getReportableSeverity()));
-    if (!parsed)
+    const nvcaffeparser1::IBlobNameToTensor* blobNameToTensor = parser->parse(
+        mParams.prototxtFileName.c_str(), mParams.weightsFileName.c_str(), *network, nvinfer1::DataType::kFLOAT);
+
+    for (auto& s : mParams.outputTensorNames)
+    {
+        network->markOutput(*blobNameToTensor->find(s.c_str()));
+    }
+
+    nvinfer1::Dims inputDims = network->getInput(0)->getDimensions();
+    // add mean subtraction to the beginning of the network
+    mMeanBlob
+        = SampleUniquePtr<nvcaffeparser1::IBinaryProtoBlob>(parser->parseBinaryProto(mParams.meanFileName.c_str()));
+    nvinfer1::Weights meanWeights{nvinfer1::DataType::kFLOAT, mMeanBlob->getData(), inputDims.d[1] * inputDims.d[2]};
+    // For this sample, a large range based on the mean data is chosen and applied to the entire network.
+    // The preferred method is use scales computed based on a representative data set
+    // and apply each one individually based on the tensor. The range here is large enough for the
+    // network, but is chosen for example purposes only.
+    float maxMean
+        = samplesCommon::getMaxValue(static_cast<const float*>(meanWeights.values), samplesCommon::volume(inputDims));
+
+    auto mean = network->addConstant(nvinfer1::Dims3(1, inputDims.d[1], inputDims.d[2]), meanWeights);
+    if (!mean->getOutput(0)->setDynamicRange(-maxMean, maxMean))
     {
         return false;
     }
-
-    samplesCommon::enableDLA(builder.get(), config.get(), mParams.dlaCore);
+    if (!network->getInput(0)->setDynamicRange(-maxMean, maxMean))
+    {
+        return false;
+    }
+    auto meanSub = network->addElementWise(*network->getInput(0), *mean->getOutput(0), ElementWiseOperation::kSUB);
+    if (!meanSub->getOutput(0)->setDynamicRange(-maxMean, maxMean))
+    {
+        return false;
+    }
+    network->getLayer(0)->setInput(0, *meanSub->getOutput(0));
+    samplesCommon::setAllDynamicRanges(network.get(), 127.0f, 127.0f);
 
     return true;
 }
@@ -422,7 +425,7 @@ bool SampleIOFormats::constructNetwork(SampleUniquePtr<nvinfer1::IBuilder>& buil
 //!
 bool SampleIOFormats::infer(SampleBuffer& inputBuf, SampleBuffer& outputBuf)
 {
-    auto const devInput = mallocCudaMem<uint8_t>(inputBuf.getBufferSize());
+    const auto devInput = mallocCudaMem<uint8_t>(inputBuf.getBufferSize());
     auto devOutput = mallocCudaMem<uint8_t>(outputBuf.getBufferSize());
 
     CHECK(cudaMemcpy(devInput.get(), inputBuf.buffer, inputBuf.getBufferSize(), cudaMemcpyHostToDevice));
@@ -440,7 +443,7 @@ bool SampleIOFormats::infer(SampleBuffer& inputBuf, SampleBuffer& outputBuf)
     void* bindings[2] = {devInput.get(), devOutput.get()};
 
     // Asynchronously enqueue the inference work
-    if (!context->enqueueV2(bindings, stream, nullptr))
+    if (!context->enqueue(1, bindings, stream, nullptr))
     {
         return false;
     }
@@ -457,12 +460,24 @@ bool SampleIOFormats::infer(SampleBuffer& inputBuf, SampleBuffer& outputBuf)
 }
 
 //!
+//! \brief Used to clean up any state created in the sample class
+//!
+bool SampleIOFormats::teardown()
+{
+    //! Clean up the libprotobuf files as the parsing is complete
+    //! \note It is not safe to use any other part of the protocol buffers library after
+    //! ShutdownProtobufLibrary() has been called.
+    nvcaffeparser1::shutdownProtobufLibrary();
+    return true;
+}
+
+//!
 //! \brief Reads the digit map from file
 //!
-bool SampleIOFormats::readDigits(SampleBuffer& buffer, int32_t groundTruthDigit)
+bool SampleIOFormats::readDigits(SampleBuffer& buffer, int groundTruthDigit)
 {
-    int32_t const inputH = buffer.dims.d[2];
-    int32_t const inputW = buffer.dims.d[3];
+    const int inputH = buffer.dims.d[1];
+    const int inputW = buffer.dims.d[2];
 
     // Read a random digit file
     std::vector<uint8_t> fileData(inputH * inputW);
@@ -470,7 +485,8 @@ bool SampleIOFormats::readDigits(SampleBuffer& buffer, int32_t groundTruthDigit)
         locateFile(std::to_string(groundTruthDigit) + ".pgm", mParams.dataDirs), fileData.data(), inputH, inputW);
 
     // Print ASCII representation of digit
-    for (int32_t i = 0; i < inputH * inputW; i++)
+    sample::gLogInfo << "Input:\n";
+    for (int i = 0; i < inputH * inputW; i++)
     {
         sample::gLogInfo << (" .:-=+*#%@"[fileData[i] / 26]) << (((i + 1) % inputW) ? "" : "\n");
     }
@@ -478,9 +494,9 @@ bool SampleIOFormats::readDigits(SampleBuffer& buffer, int32_t groundTruthDigit)
 
     float* inputBuf = reinterpret_cast<float*>(buffer.buffer);
 
-    for (int32_t i = 0; i < inputH * inputW; i++)
+    for (int i = 0; i < inputH * inputW; i++)
     {
-        inputBuf[i] = 1.0F - static_cast<float>(fileData[i] / 255.0F);
+        inputBuf[i] = float(fileData[i]);
     }
 
     return true;
@@ -490,16 +506,18 @@ bool SampleIOFormats::readDigits(SampleBuffer& buffer, int32_t groundTruthDigit)
 //! \brief Verifies that the output is correct and prints it
 //!
 template <typename T>
-bool SampleIOFormats::verifyOutput(SampleBuffer& outputBuf, int32_t groundTruthDigit) const
+bool SampleIOFormats::verifyOutput(SampleBuffer& outputBuf, int groundTruthDigit) const
 {
-    T const* prob = reinterpret_cast<T const*>(outputBuf.buffer);
+    const T* prob = reinterpret_cast<const T*>(outputBuf.buffer);
 
+    // Print histogram of the output distribution
+    sample::gLogInfo << "Output:\n";
     float val{0.0f};
     float elem{0.0f};
-    int32_t idx{0};
-    int32_t const kDIGITS = 10;
+    int idx{0};
+    const int kDIGITS = 10;
 
-    for (int32_t i = 0; i < kDIGITS; i++)
+    for (int i = 0; i < kDIGITS; i++)
     {
         elem = static_cast<float>(prob[i]);
         if (val < elem)
@@ -507,24 +525,27 @@ bool SampleIOFormats::verifyOutput(SampleBuffer& outputBuf, int32_t groundTruthD
             val = elem;
             idx = i;
         }
+
+        sample::gLogInfo << i << ": " << std::string(int(std::floor(elem * 10 + 0.5f)), '*') << "\n";
     }
-    sample::gLogInfo << "Predicted Output: " << idx << std::endl;
+    sample::gLogInfo << std::endl;
 
     return (idx == groundTruthDigit && val > 0.9f);
 }
 
-int32_t calcIndex(SampleBuffer& buffer, int32_t c, int32_t h, int32_t w)
+int calcIndex(SampleBuffer& buffer, int c, int h, int w)
 {
-    int32_t index;
+    int index;
 
     if (!buffer.desc.channelPivot)
     {
-        index = c / buffer.desc.dims[4] * buffer.desc.dims[2] * buffer.desc.dims[3] * buffer.desc.dims[4]
-            + h * buffer.desc.dims[3] * buffer.desc.dims[4] + w * buffer.desc.dims[4] + c % buffer.desc.dims[4];
+        index = c / buffer.desc.dims[3] * buffer.desc.dims[1] * buffer.desc.dims[2] * buffer.desc.dims[3]
+            + h * buffer.desc.dims[2] * buffer.desc.dims[3] + w * buffer.desc.dims[3] + c % buffer.desc.dims[3];
     }
     else
     {
-        index = h * buffer.desc.dims[3] * buffer.desc.dims[2] + w * buffer.desc.dims[3] + c;
+        index = h * buffer.desc.dims[2] * buffer.desc.dims[1] + w * buffer.desc.dims[2]
+            + c / buffer.desc.scalarPerVector * buffer.desc.scalarPerVector + c % buffer.desc.scalarPerVector;
     }
 
     return index;
@@ -542,16 +563,16 @@ void reformat(SampleBuffer& src, SampleBuffer& dst)
         return;
     }
 
-    int32_t srcIndex, dstIndex;
+    int srcIndex, dstIndex;
 
     T* srcBuf = reinterpret_cast<T*>(src.buffer);
     T* dstBuf = reinterpret_cast<T*>(dst.buffer);
 
-    for (int32_t c = 0; c < src.dims.d[1]; c++)
+    for (int c = 0; c < src.dims.d[0]; c++)
     {
-        for (int32_t h = 0; h < src.dims.d[2]; h++)
+        for (int h = 0; h < src.dims.d[1]; h++)
         {
-            for (int32_t w = 0; w < src.dims.d[3]; w++)
+            for (int w = 0; w < src.dims.d[2]; w++)
             {
                 srcIndex = calcIndex(src, c, h, w);
                 dstIndex = calcIndex(dst, c, h, w);
@@ -564,16 +585,16 @@ void reformat(SampleBuffer& src, SampleBuffer& dst)
 template <typename T>
 void convertGoldenData(SampleBuffer& goldenInput, SampleBuffer& dstInput)
 {
-    SampleBuffer tmpBuf(goldenInput.dims, sizeof(T), goldenInput.format, true);
+    SampleBuffer tmpBuf(goldenInput.dims, sizeof(T), goldenInput.format);
 
     float* golden = reinterpret_cast<float*>(goldenInput.buffer);
     T* tmp = reinterpret_cast<T*>(tmpBuf.buffer);
 
-    for (int32_t i = 0; i < goldenInput.desc.getElememtSize(); i++)
+    for (int i = 0; i < goldenInput.desc.getElememtSize(); i++)
     {
         if (std::is_same<T, int8_t>::value)
         {
-            tmp[i] = static_cast<T>(1 - ((1.0F - golden[i]) * 255.0F - 128) / 255.0F);
+            tmp[i] = static_cast<T>(golden[i] - 128);
         }
         else
         {
@@ -587,19 +608,25 @@ void convertGoldenData(SampleBuffer& goldenInput, SampleBuffer& dstInput)
 //!
 //! \brief Initializes members of the params struct using the command line args
 //!
-samplesCommon::OnnxSampleParams initializeSampleParams(samplesCommon::Args const& args)
+samplesCommon::CaffeSampleParams initializeSampleParams(const samplesCommon::Args& args)
 {
-    samplesCommon::OnnxSampleParams params;
-    if (args.dataDirs.empty()) // Use default directories if user hasn't provided directory paths
+    samplesCommon::CaffeSampleParams params;
+    if (args.dataDirs.empty())
     {
         params.dataDirs.push_back("data/mnist/");
         params.dataDirs.push_back("data/samples/mnist/");
     }
-    else // Use the data directory provided by the user
+    else
     {
         params.dataDirs = args.dataDirs;
     }
-    params.onnxFileName = "mnist.onnx";
+
+    params.prototxtFileName = locateFile("mnist.prototxt", params.dataDirs);
+    params.weightsFileName = locateFile("mnist.caffemodel", params.dataDirs);
+    params.meanFileName = locateFile("mnist_mean.binaryproto", params.dataDirs);
+    params.inputTensorNames.push_back("data");
+    params.batchSize = 1;
+    params.outputTensorNames.push_back("prob");
     params.dlaCore = args.useDLACore;
 
     return params;
@@ -609,33 +636,35 @@ samplesCommon::OnnxSampleParams initializeSampleParams(samplesCommon::Args const
 //!
 void printHelpInfo()
 {
-    std::cout
-        << "Usage: ./sample_onnx_mnist [-h or --help] [-d or --datadir=<path to data directory>] [--useDLACore=<int>]"
-        << std::endl;
-    std::cout << "--help          Display help information" << std::endl;
+    std::cout << "Usage: ./sample_io_formats [-h or --help] [-d or --datadir=<path to data directory>] "
+                 "[--useDLACore=<int>]\n";
+    std::cout << "--help          Display help information\n";
     std::cout << "--datadir       Specify path to a data directory, overriding the default. This option can be used "
                  "multiple times to add multiple directories. If no data directories are given, the default is to use "
-                 "(data/samples/mnist/, data/mnist/)"
+                 "data/samples/googlenet/ and data/googlenet/"
               << std::endl;
     std::cout << "--useDLACore=N  Specify a DLA engine for layers that support DLA. Value can range from 0 to n-1, "
                  "where n is the number of DLA engines on the platform."
               << std::endl;
 }
+
 //!
 //! \brief Used to run the engine build and inference/reference functions
 //!
 template <typename T>
-bool process(SampleIOFormats& sample, sample::Logger::TestAtom const& sampleTest, SampleBuffer& inputBuf,
-    SampleBuffer& outputBuf, SampleBuffer& goldenInput)
+bool process(SampleIOFormats& sample, const sample::Logger::TestAtom& sampleTest, SampleBuffer& inputBuf,
+    SampleBuffer& outputBuf, SampleBuffer& goldenInput, SampleBuffer& goldenOutput)
 {
     sample::gLogInfo << "Building and running a GPU inference engine with specified I/O formats." << std::endl;
 
-    inputBuf = SampleBuffer(sample.mInputDims, sizeof(T), sample.mTensorFormat, true);
-    outputBuf = SampleBuffer(sample.mOutputDims, sizeof(float), TensorFormat::kLINEAR, false);
+    inputBuf = SampleBuffer(sample.mInputDims, sizeof(T), sample.mTensorFormat);
+    outputBuf = SampleBuffer(sample.mOutputDims, sizeof(T), sample.mTensorFormat);
+
     if (!sample.build(sizeof(T)))
     {
         return false;
     }
+
     convertGoldenData<T>(goldenInput, inputBuf);
 
     if (!sample.infer(inputBuf, outputBuf))
@@ -643,7 +672,11 @@ bool process(SampleIOFormats& sample, sample::Logger::TestAtom const& sampleTest
         return false;
     }
 
-    if (!sample.verifyOutput<T>(outputBuf, sample.mDigit))
+    SampleBuffer linearOutputBuf(sample.mOutputDims, sizeof(T), TensorFormat::kLINEAR);
+
+    reformat<T>(outputBuf, linearOutputBuf);
+
+    if (!sample.verifyOutput<T>(linearOutputBuf, sample.mDigit))
     {
         return false;
     }
@@ -651,8 +684,8 @@ bool process(SampleIOFormats& sample, sample::Logger::TestAtom const& sampleTest
     return true;
 }
 
-bool runFP32Reference(SampleIOFormats& sample, sample::Logger::TestAtom const& sampleTest, SampleBuffer& goldenInput,
-    SampleBuffer& goldenOutput)
+bool runFP32Reference(SampleIOFormats& sample, const sample::Logger::TestAtom& sampleTest,
+    SampleBuffer& goldenInput, SampleBuffer& goldenOutput)
 {
     sample::gLogInfo << "Building and running a FP32 GPU inference to get golden input/output" << std::endl;
 
@@ -661,8 +694,8 @@ bool runFP32Reference(SampleIOFormats& sample, sample::Logger::TestAtom const& s
         return false;
     }
 
-    goldenInput = SampleBuffer(sample.mInputDims, sizeof(float), TensorFormat::kLINEAR, true);
-    goldenOutput = SampleBuffer(sample.mOutputDims, sizeof(float), TensorFormat::kLINEAR, false);
+    goldenInput = SampleBuffer(sample.mInputDims, sizeof(float), TensorFormat::kLINEAR);
+    goldenOutput = SampleBuffer(sample.mOutputDims, sizeof(float), TensorFormat::kLINEAR);
 
     sample.readDigits(goldenInput, sample.mDigit);
 
@@ -687,7 +720,7 @@ public:
     std::string formatName; //!< name of the format
 };
 
-int32_t main(int32_t argc, char** argv)
+int main(int argc, char** argv)
 {
     samplesCommon::Args args;
     bool argsOK = samplesCommon::parseArgs(args, argc, argv);
@@ -707,7 +740,7 @@ int32_t main(int32_t argc, char** argv)
 
     sample::gLogger.reportTestStart(sampleTest);
 
-    samplesCommon::OnnxSampleParams params = initializeSampleParams(args);
+    samplesCommon::CaffeSampleParams params = initializeSampleParams(args);
 
     std::vector<IOSpec> vecFP16TensorFmt = {
         IOSpec{TensorFormat::kLINEAR, "kLINEAR"},
@@ -738,19 +771,6 @@ int32_t main(int32_t argc, char** argv)
         return sample::gLogger.reportFail(sampleTest);
     }
 
-    // Test FP16 formats
-    for (auto spec : vecFP16TensorFmt)
-    {
-        sample::gLogInfo << "Testing datatype FP16 with format " << spec.formatName << std::endl;
-        sample.mTensorFormat = spec.format;
-        SampleBuffer inputBuf, outputBuf;
-
-        if (!process<half_float::half>(sample, sampleTest, inputBuf, outputBuf, goldenInput))
-        {
-            return sample::gLogger.reportFail(sampleTest);
-        }
-    }
-
     // Test INT8 formats
     for (auto spec : vecINT8TensorFmt)
     {
@@ -758,10 +778,28 @@ int32_t main(int32_t argc, char** argv)
         sample.mTensorFormat = spec.format;
         SampleBuffer inputBuf, outputBuf;
 
-        if (!process<int8_t>(sample, sampleTest, inputBuf, outputBuf, goldenInput))
+        if (!process<int8_t>(sample, sampleTest, inputBuf, outputBuf, goldenInput, goldenOutput))
         {
             return sample::gLogger.reportFail(sampleTest);
         }
+    }
+
+    // Test FP16 formats
+    for (auto spec : vecFP16TensorFmt)
+    {
+        sample::gLogInfo << "Testing datatype FP16 with format " << spec.formatName << std::endl;
+        sample.mTensorFormat = spec.format;
+        SampleBuffer inputBuf, outputBuf;
+
+        if (!process<half_float::half>(sample, sampleTest, inputBuf, outputBuf, goldenInput, goldenOutput))
+        {
+            return sample::gLogger.reportFail(sampleTest);
+        }
+    }
+
+    if (!sample.teardown())
+    {
+        return sample::gLogger.reportFail(sampleTest);
     }
 
     return sample::gLogger.reportPass(sampleTest);

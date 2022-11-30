@@ -49,11 +49,10 @@ The following parameters were used to create `MultilevelProposeROI` instance:
 |`int`              |`prenms_topk`                     |The number of ROIs which will be kept before NMS. 
 |`int`              |`keep_topk`                       |Number of detections will be kept after NMS.
 |`float`            |`iou_threshold`                   |IOU threshold value used in NMS.
-|`int[3]`           |`image_size`                      |Input image shape in CHW. Defaults to [3, 832, 1344]
 
 ## Limitations
 
-The attribute `prenms_topk` is capped at 4096 to support embedded devices with smaller shared memory capacity.
+Each number of anchors is capped at 4096 to support embedded devices with smaller shared memory capacity.
 
 To enable support for a device with higher memory, calls to `sortPerClass`, `PerClassNMS` and `KeepTopKGatherBoxScore` can be modified in `MultilevelPropose` ([maskRCNNKernels.cu](https://github.com/NVIDIA/TensorRT/blob/main/plugin/common/kernels/maskRCNNKernels.cu)).
 

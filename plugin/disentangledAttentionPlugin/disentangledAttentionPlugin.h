@@ -18,13 +18,14 @@
 #ifndef TRT_DISENTANGLED_ATTENTION_PLUGIN_H
 #define TRT_DISENTANGLED_ATTENTION_PLUGIN_H
 
-#include "NvInferPlugin.h"
-#include "plugin.h"
 #include "serialize.hpp"
-#include <cstdint>
+#include "plugin.h"
+#include <cudnn.h>
+#include <vector>
 #include <iostream>
 #include <string>
-#include <vector>
+#include <cstdint>
+#include "NvInferPlugin.h"
 
 // One of the preferred ways of making TensorRT to be able to see
 // our custom layer requires extending IPluginV2 and IPluginCreator classes.
@@ -36,16 +37,17 @@ namespace plugin
 
 // using namespace nvinfer1;
 
-#define kDISENTANGLED_VERSION 2
-// Version 1: regular relative position index
-// Version 2: log bucket relative position index
-constexpr int32_t kDISENTANGLED_TILESIZE_V1 = 32;
-constexpr int32_t kDISENTANGLED_BLOCKDIMY_V1 = 8;
-constexpr int32_t kDISENTANGLED_TILESIZE_V2 = 64;
-constexpr int32_t kDISENTANGLED_BLOCKDIMY_V2 = 4;
+constexpr int32_t kDISENTANGLED_VERSION = 2;
+constexpr int32_t kDISENTANGLED_TILESIZE = 32;
+constexpr int32_t kDISENTANGLED_BLOCKDIMY = 8;
+
+template <typename TDataType>
+void disentangled_kernel_wrapper_v1(TDataType const* data1, int32_t const* index1, TDataType const* data2,
+    int32_t const* index2, TDataType* result, dim3 dimData1, dim3 dimIndex1, dim3 dimData2, dim3 dimIndex2,
+    dim3 dimResult, dim3 block, dim3 grid, cudaStream_t stream);
 
 template <typename TDataType, int32_t tTileSize, int32_t tBlockDimY>
-void disentangled_kernel_wrapper(TDataType const* data0, TDataType const* data1, TDataType const* data2,
+void disentangled_kernel_wrapper_v2(TDataType const* data0, TDataType const* data1, TDataType const* data2,
     TDataType* result, dim3 dimData0, dim3 dimData1, dim3 dimData2, dim3 dimResult, TDataType factor, int32_t span,
     dim3 block, dim3 grid, cudaStream_t stream);
 
@@ -121,10 +123,7 @@ private:
     int32_t mSpan;
     float mFactor;
 
-    using IPluginV2::getOutputDimensions;
-    using IPluginV2::getWorkspaceSize;
-    using IPluginV2::enqueue;
-    using IPluginV2Ext::configurePlugin;
+    cudnnHandle_t _cudnn_handle;
 };
 
 class DisentangledAttentionPluginCreator : public nvinfer1::IPluginCreator

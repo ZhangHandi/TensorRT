@@ -247,7 +247,7 @@ int32_t launch_large_hface(cudaStream_t stream, const int32_t ld, const int32_t 
 
 // naive kernel that only changes the addressing seems to be faster for small problem sizes
 template <int32_t TPB, int32_t VPT>
-__global__ void skiplnDQQ_vec3(const int32_t ld, const int8_t* input, const int8_t* skip, int8_t* output,
+__global__ void skiplnDQQ_vec3(const int32_t ld, const half* input, const int8_t* skip, int8_t* output,
     const half* beta, const half* gamma, const float dqScaleIn, const float dqScaleSkip, const float qScale,
     const int32_t total)
 {
@@ -258,7 +258,7 @@ __global__ void skiplnDQQ_vec3(const int32_t ld, const int8_t* input, const int8
     const int32_t bidx = blockIdx.x;
     const int32_t idx = houter * total * 32 + bidx * 32 + hinner * VPT;
     // 4 * 1024 * 4 * 2 Bytes = 16KB per block
-    int8_t in_local[VPT];
+    half in_local[VPT];
     int8_t skip_local[VPT];
 
     half in_local_dq[VPT]; // dequantized input + skip 
@@ -266,7 +266,8 @@ __global__ void skiplnDQQ_vec3(const int32_t ld, const int8_t* input, const int8
     half gamma_local[VPT];
 
     // load input tensors
-    copy<sizeof(int8_t) * VPT>(&input[idx], in_local);
+    copy<sizeof(half) * VPT>(&input[idx], in_local);
+    
     copy<sizeof(int8_t) * VPT>(&skip[idx], skip_local);
 
     // load parameters
@@ -282,8 +283,8 @@ __global__ void skiplnDQQ_vec3(const int32_t ld, const int8_t* input, const int8
         // DQ input and skip
         const float tmp_in = in_local[it];
         const float tmp_skip = skip_local[it];
-        in_local_dq[it] = dqScaleIn * tmp_in + dqScaleSkip * tmp_skip;
-
+        //in_local_dq[it] = dqScaleIn * tmp_in + dqScaleSkip * tmp_skip;
+        in_local_dq[it] = tmp_in + dqScaleSkip * tmp_skip;
         const half tmp = rld * in_local_dq[it];
         const half2 tmp2 = __halves2half2(tmp, tmp * in_local_dq[it]);
         stats_local = stats_local + tmp2;
@@ -320,7 +321,7 @@ __global__ void skiplnDQQ_vec3(const int32_t ld, const int8_t* input, const int8
 
 }
 
-int launch_small_hface(cudaStream_t stream, const int32_t ld, const int32_t total, const int8_t* input,
+int launch_small_hface(cudaStream_t stream, const int32_t ld, const int32_t total, const half* input,
     const int8_t* skip, const half* beta, const half* gamma, int8_t* output, const float dqScaleIn,
     const float dqScaleSkip, const float qScale)
 {

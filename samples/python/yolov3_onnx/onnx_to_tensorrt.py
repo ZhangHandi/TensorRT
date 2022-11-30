@@ -21,15 +21,7 @@ from __future__ import print_function
 import numpy as np
 import tensorrt as trt
 import pycuda.driver as cuda
-
-# Use autoprimaryctx if available (pycuda >= 2021.1) to
-# prevent issues with other modules that rely on the primary
-# device context.
-try:
-    import pycuda.autoprimaryctx
-except ModuleNotFoundError:
-    import pycuda.autoinit
-
+import pycuda.autoinit
 from PIL import ImageDraw
 
 from data_processing import PreprocessYOLO, PostprocessYOLO, ALL_CATEGORIES

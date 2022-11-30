@@ -29,10 +29,10 @@ POLYGRAPHY_CMD = [os.path.join(ROOT_DIR, "bin", "polygraphy")]
 ALL_TOOLS = {
     "run": [],
     "convert": [],
-    "inspect": ["data", "model", "tactics", "capability", "diff-tactics"],
+    "inspect": ["data", "model", "tactics", "capability"],
     "surgeon": ["extract", "insert", "sanitize"],
-    "template": ["trt-network", "trt-config", "onnx-gs"],
-    "debug": ["build", "precision", "reduce", "repeat"],
+    "template": ["trt-network", "trt-config"],
+    "debug": ["build", "precision", "diff-tactics", "reduce", "repeat"],
     "data": ["to-input"],
 }
 
@@ -49,15 +49,17 @@ def is_file_non_empty(path):
     return not is_file_empty(path)
 
 
-def time_func(func, warm_up=50, iters=200):
+def time_func(func, warm_up=10, iters=50):
     for _ in range(warm_up):
         func()
 
-    start = time.time()
+    total = 0
     for _ in range(iters):
+        start = time.time()
         func()
-    end = time.time()
-    return (end - start) / float(iters)
+        end = time.time()
+        total += end - start
+    return total / float(iters)
 
 
 HAS_DLA = None

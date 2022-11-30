@@ -15,9 +15,7 @@
 # limitations under the License.
 #
 import contextlib
-import copy
 import glob
-import math
 import os
 import sys
 import tempfile
@@ -32,16 +30,6 @@ np = mod.lazy_import("numpy")
 # These modules are not cross-platform so any usage should be guarded
 fcntl = mod.lazy_import("fcntl")
 msvcrt = mod.lazy_import("msvcrt")
-
-
-@mod.export()
-def is_nan(obj):
-    return isinstance(obj, float) and math.isnan(obj)
-
-
-@mod.export()
-def is_inf(obj):
-    return isinstance(obj, float) and math.isinf(obj)
 
 
 @mod.export()
@@ -71,64 +59,50 @@ def find_str_in_iterable(name, seq, index=None):
 
 
 @mod.export()
-def check_sequence_contains(
-    sequence, items, name=None, items_name=None, log_func=None, check_missing=None, check_extra=None
-):
+def check_dict_contains(dct, keys, check_missing=True, dict_name=None, log_func=None):
     """
-    Checks that a sequence contains the provided items and also
-    that it does not contain any extra items and issues warnings/errors
+    Checks that a dictionary contains the provided keys and also
+    that it does not contain any extra items and issues warnings
     otherwise.
 
     Args:
-        sequence (Sequence[Any]):
-                The sequence to check.
-        items (Sequence[Any]):
-                The items that should be in the sequence.
+        dct (Dict[Any, Any]):
+                The dictionary to check.
+        keys (Sequence[Any]):
+                The keys that should be in the dictionary.
 
-        name (str):
-                The name to use for the sequence displaying warnings/errors.
-                Defaults to "the sequence".
-        items_name (str):
-                The name to use for items in the sequence displaying warnings/errors.
-                Defaults to "items".
+        check_missing (bool):
+                Whether to check for missing keys in the dictionary.
+                Defaults to True.
+        dict_name (str):
+                The name to use instead of "the dictionary" when
+                displaying warnings.
         log_func (Logger.method):
                 The logging method to use to display warnings/errors.
-                Defaults to G_LOGGER.critical.
-        check_missing (bool):
-                Whether to check for missing items in the sequence.
-                Defaults to True.
-        check_extra (bool):
-                Whether to check for extra items in the sequence.
-                Defaults to True.
+                Defaults to G_LOGGER.warning.
 
     Returns:
-        Tuple[Sequence[Any], Sequence[Any]]:
-                The missing and extra items respectively
+        bool: Whether the dictionary contains exactly the specified keys.
     """
-    check_missing = default(check_missing, True)
-    check_extra = default(check_extra, True)
-    log_func = default(log_func, G_LOGGER.critical)
-    name = default(name, "the sequence")
-    items_name = default(items_name, "items")
+    log_func = default(log_func, G_LOGGER.warning)
+    dict_name = default(dict_name, "the dictionary")
 
-    sequence = set(sequence)
-    items = set(items)
+    feed_names = set(dct.keys())
+    keys = set(keys)
+    missing_in_dct = (keys - feed_names) if check_missing else False
+    extra_in_dct = feed_names - keys
 
-    missing = items - sequence
-    if check_missing and missing:
+    if missing_in_dct:
         log_func(
-            f"The following {items_name} were not found in {name}: {missing}.\n"
-            f"Note: All {items_name} are: {items}, but {items_name} provided were: {sequence}"
+            f"Some keys are missing in {dict_name}: {missing_in_dct}.\nNote: Expected keys are: {keys}, but keys provided were: {feed_names}"
         )
 
-    extra = sequence - items
-    if check_extra and extra:
+    if extra_in_dct:
         log_func(
-            f"Extra {items_name} in {name}: {extra}.\n"
-            f"Note: All {items_name} are: {items}, but {items_name} provided were: {sequence}"
+            f"Extra keys in {dict_name}: {extra_in_dct}.\nNote: Expected keys are: {keys}, but keys provided were: {feed_names}"
         )
 
-    return missing, extra
+    return not extra_in_dct and not missing_in_dct
 
 
 @mod.export()
@@ -230,9 +204,7 @@ def default(value, default):
 
 @mod.export()
 def is_sequence(obj):
-    return (
-        hasattr(obj, "__iter__") and not isinstance(obj, dict) and not isinstance(obj, set) and not isinstance(obj, str)
-    )
+    return hasattr(obj, "__iter__") and not isinstance(obj, dict) and not isinstance(obj, set)
 
 
 @mod.export()
@@ -796,61 +768,6 @@ def try_match_shape(arr, shape):
     return arr
 
 
-@mod.export()
-def is_contiguous(array):
-    """
-    Checks whether the provided NumPy array is contiguous in memory.
-
-    Args:
-        array (np.ndarray): The NumPy array.
-
-    Returns:
-        bool: Whether the array is contiguous in memory.
-    """
-    return array.flags["C_CONTIGUOUS"]
-
-
-@mod.export()
-def make_contiguous(array):
-    """
-    Makes a NumPy array contiguous if it's not already.
-
-    Args:
-        array (np.ndarray): The NumPy array.
-
-    Returns:
-        np.ndarray: The contiguous NumPy array.
-    """
-    if not is_contiguous(array):
-        return np.ascontiguousarray(array)
-    return array
-
-
-@mod.export()
-def resize_buffer(buffer, shape):
-    """
-    Resizes the provided buffer and makes it contiguous in memory,
-    possibly reallocating the buffer.
-
-    Args:
-        buffer (np.ndarray): The buffer to resize.
-        shape (Sequence[int]): The desired shape of the buffer.
-
-    Returns:
-        np.ndarray: The resized buffer, possibly reallocated.
-    """
-    if shape != buffer.shape:
-        try:
-            buffer.resize(shape, refcheck=False)
-        except ValueError as err:
-            G_LOGGER.warning(
-                f"Could not resize host buffer to shape: {shape}. "
-                f"Allocating a new buffer instead.\nNote: Error was: {err}"
-            )
-            buffer = np.empty(shape, dtype=np.dtype(buffer.dtype))
-    return make_contiguous(buffer)
-
-
 ##
 ## Logging Utilities
 ##
@@ -890,59 +807,9 @@ def indent_block(block, level=1):
     Returns:
         str: The indented block.
     """
-    tab = f"{constants.TAB}" * level
+    tab = "\t" * level
     sep = f"\n{tab}"
     return tab + sep.join(str(block).splitlines())
-
-
-# Some objects don't have correct `repr` implementations, so we need to handle them specially.
-# For other objects, we do nothing.
-def handle_special_repr(obj):
-    # 1. Work around incorrect `repr` implementations
-
-    # Use a special __repr__ override so that we can inline strings
-    class InlineString(str):
-        def __repr__(self) -> str:
-            return self
-
-    if is_nan(obj) or is_inf(obj):
-        return InlineString(f"float('{obj}')")
-
-    # 2. If this object is a collection, recursively apply this logic.
-    # Note that we only handle the built-in collections here, since custom collections
-    # may have special behavior that we don't know about.
-
-    if type(obj) not in [tuple, list, dict, set]:
-        return obj
-
-    obj = copy.copy(obj)
-    # Tuple needs special handling since it doesn't support assignment.
-    if type(obj) is tuple:
-        args = tuple(handle_special_repr(elem) for elem in obj)
-        obj = type(obj)(args)
-    elif type(obj) is list:
-        for index, elem in enumerate(obj):
-            obj[index] = handle_special_repr(elem)
-    elif type(obj) is dict:
-        new_items = {}
-        for key, value in obj.items():
-            new_items[handle_special_repr(key)] = handle_special_repr(value)
-        obj.clear()
-        obj.update(new_items)
-    elif type(obj) is set:
-        new_elems = set()
-        for value in obj:
-            new_elems.add(handle_special_repr(value))
-        obj.clear()
-        obj.update(new_elems)
-
-    # 3. Finally, return the modified version of the object
-    return obj
-
-
-def apply_repr(obj):
-    obj = handle_special_repr(obj)
-    return repr(obj)
 
 
 @mod.export()
@@ -960,23 +827,17 @@ def make_repr(type_str, *args, **kwargs):
                 The name of the type to create a representation for.
 
     Returns:
-        Tuple[str, bool, bool]:
-                A tuple including the ``__repr__`` string and two booleans
-                indicating whether all the positional and keyword arguments were default
-                (i.e. None) respectively.
+        Tuple[str, bool]:
+                A tuple including the ``__repr__`` string and a boolean
+                indicating whether all the arguments were default (i.e. None).
     """
-    processed_args = list(map(apply_repr, args))
+    all_args = list(map(repr, args))
 
-    processed_kwargs = []
     for key, val in filter(lambda t: t[1] is not None, kwargs.items()):
-        processed_kwargs.append(f"{key}={apply_repr(val)}")
+        all_args.append(f"{key}={repr(val)}")
 
-    repr_str = f"{type_str}({', '.join(processed_args + processed_kwargs)})"
-
-    def all_default(arg_list):
-        return all(arg == apply_repr(None) for arg in arg_list)
-
-    return repr_str, all_default(processed_args), all_default(processed_kwargs)
+    repr_str = f"{type_str}({', '.join(all_args)})"
+    return repr_str, all(arg == repr(None) for arg in all_args)
 
 
 ##

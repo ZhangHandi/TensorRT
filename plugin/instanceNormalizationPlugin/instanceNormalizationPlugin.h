@@ -18,7 +18,7 @@
 #define TRT_INSTANCE_NORMALIZATION_PLUGIN_H
 #include "common/plugin.h"
 #include "common/serialize.hpp"
-#include "instanceNormalizationPlugin/instanceNormFwd.h"
+#include "instanceNormFwd.h"
 #include <cuda_fp16.h>
 #include <cudnn.h>
 #include <iostream>
@@ -31,6 +31,7 @@ namespace nvinfer1
 {
 namespace plugin
 {
+using namespace instance_norm_impl;
 class InstanceNormalizationPlugin : public nvinfer1::IPluginV2DynamicExt
 {
 
@@ -116,10 +117,9 @@ private:
     std::string mPluginNamespace;
     std::string mNamespace;
     bool mInitialized{false};
-    int32_t mCudaDriverVersion{-1};
 
     // NDHWC implementation
-    instance_norm_impl::InstanceNormFwdContext mContext;
+    InstanceNormFwdContext mContext;
 };
 
 class InstanceNormalizationPluginCreator : public nvinfer1::pluginInternal::BaseCreator

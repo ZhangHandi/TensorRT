@@ -17,16 +17,11 @@
 
 import copy
 from collections import OrderedDict
+from polygraphy.logger.logger import G_LOGGER
 
-from polygraphy import util
-from polygraphy.logger import G_LOGGER
+from polygraphy import mod
 
-#
-# NOTE: These classes intentionally don't inherit from the built-in collections (dict, list, etc.)
-# because doing so prevents us from providing custom JSON serialization methods, since the default
-# encoder implementation can handle most of the built-in collections and therefore doesn't dispatch
-# to custom implementations.
-#
+util = mod.lazy_import("polygraphy.util")
 
 
 def TypedDict(key_type_func, value_type_func):

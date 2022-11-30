@@ -19,6 +19,4 @@ versions:
       image_size:
         min: "0, 0, 0"
         max: "=pinf, =pinf, =pinf"
-    attributes_required:
-      - pooled_size
 ...

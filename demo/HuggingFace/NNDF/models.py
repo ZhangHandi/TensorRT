@@ -39,9 +39,6 @@ from polygraphy.logger import G_LOGGER as PG_LOGGER
 from torch import load, save
 from torch.nn import Module
 
-# tensorrt
-from tensorrt import PreviewFeature
-
 # TRT-HuggingFace
 from NNDF.networks import NetworkMetadata
 from NNDF.logger import G_LOGGER
@@ -97,7 +94,6 @@ class ModelFileConverter:
         input_fpath: str,
         network_metadata: NetworkMetadata,
         profiles: List[Profile],
-        preview_features: List[PreviewFeature],
     ):
         """
         Converts ONNX file to TRT engine.
@@ -109,7 +105,6 @@ class ModelFileConverter:
             input_fpath (str): Input file location of the generated ONNX file.
             network_metadata (NetworkMetadata): Network metadata of the network being converted.
             profiles (List[polygraphy.backend.trt.Profile]): The optimization profiles used to build the engine.
-            preview_features (List[tensorrt.PreviewFeature]): The preview features to enable when building the engine.
 
         Returns:
             TRTEngineFile: Newly generated engine.
@@ -118,18 +113,13 @@ class ModelFileConverter:
 
         G_LOGGER.info("Using optimization profiles: {:}".format(profiles))
 
-        try:
-            self.trt_inference_config = CreateConfig(
-                tf32=True,
-                fp16=network_metadata.precision.fp16,
-                max_workspace_size=result.DEFAULT_TRT_WORKSPACE_MB * 1024 * 1024,
-                profiles=profiles,
-                precision_constraints=("obey" if result.use_obey_precision_constraints() else None),
-                preview_features=preview_features
-            )
-        except TypeError as e:
-            G_LOGGER.error(f"This demo may have an outdated polygraphy. Please see requirements.txt for more details.")
-            raise e
+        self.trt_inference_config = CreateConfig(
+            tf32=True,
+            fp16=network_metadata.precision.fp16,
+            max_workspace_size=result.DEFAULT_TRT_WORKSPACE_MB * 1024 * 1024,
+            profiles=profiles,
+            obey_precision_constraints=result.use_obey_precision_constraints()
+        )
 
         if G_LOGGER.level == G_LOGGER.DEBUG:
             g_logger_verbosity = PG_LOGGER.EXTRA_VERBOSE
@@ -228,7 +218,6 @@ class NNModelFile(metaclass=ABCMeta):
         converter: ModelFileConverter = None,
         force_overwrite: bool = False,
         profiles: List[Profile] = [],
-        preview_features: List[PreviewFeature] = []
     ):
         """
         Converts current model into an TRT engine.
@@ -240,7 +229,6 @@ class NNModelFile(metaclass=ABCMeta):
             force_overwrite (bool): If the file already exists, tell whether or not to overwrite.
                                     Since torch models folders, can potentially erase entire folders.
             profiles (List[polygraphy.backend.trt.Profile]): The optimization profiles used to build the engine.
-            preview_features (List[tensorrt.PreviewFeature]): The preview features to enable when building the engine.
 
         Returns:
             TRTEngineFile: Newly generated ONNXModelFile
@@ -434,7 +422,6 @@ class ONNXModelFile(NNModelFile):
         converter: ModelFileConverter = None,
         force_overwrite: bool = False,
         profiles = [],
-        preview_features = []
     ):
         """
         Converts the onnx model into an trt engine.
@@ -445,7 +432,6 @@ class ONNXModelFile(NNModelFile):
             force_overwrite (bool): If the file already exists, tell whether or not to overwrite.
                                     Since torch models folders, can potentially erase entire folders.
             profiles (List[polygraphy.backend.trt.Profile]): The optimization profiles used to build the engine.
-            preview_features (List[tensorrt.PreviewFeature]): The preview features to enable when building the engine.
         Return:
             (converter.trt_engine_class): Returns a converted instance of TRTEngineFile.
         """
@@ -460,7 +446,6 @@ class ONNXModelFile(NNModelFile):
             self.fpath,
             self.network_metadata,
             profiles,
-            preview_features
         )
 
 

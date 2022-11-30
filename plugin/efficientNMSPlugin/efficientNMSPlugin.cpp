@@ -70,24 +70,6 @@ int EfficientNMSPlugin::getNbOutputs() const noexcept
 
 int EfficientNMSPlugin::initialize() noexcept
 {
-    if (!initialized)
-    {
-        int32_t device;
-        CSC(cudaGetDevice(&device), STATUS_FAILURE);
-        struct cudaDeviceProp properties;
-        CSC(cudaGetDeviceProperties(&properties, device), STATUS_FAILURE);
-        if (properties.regsPerBlock >= 65536)
-        {
-            // Most Devices
-            mParam.numSelectedBoxes = 5000;
-        }
-        else
-        {
-            // Jetson TX1/TX2
-            mParam.numSelectedBoxes = 2000;
-        }
-        initialized = true;
-    }
     return STATUS_SUCCESS;
 }
 
@@ -452,53 +434,40 @@ IPluginV2DynamicExt* EfficientNMSPluginCreator::createPlugin(const char* name, c
 {
     try
     {
-        PLUGIN_VALIDATE(fc != nullptr);
-        PluginField const* fields = fc->fields;
-        PLUGIN_VALIDATE(fields != nullptr);
-        plugin::validateRequiredAttributesExist({"score_threshold", "iou_threshold", "max_output_boxes",
-                                                    "background_class", "score_activation", "box_coding"},
-            fc);
-        for (int32_t i{0}; i < fc->nbFields; ++i)
+        const PluginField* fields = fc->fields;
+        for (int i = 0; i < fc->nbFields; ++i)
         {
-            char const* attrName = fields[i].name;
+            const char* attrName = fields[i].name;
             if (!strcmp(attrName, "score_threshold"))
             {
                 PLUGIN_VALIDATE(fields[i].type == PluginFieldType::kFLOAT32);
-                auto const scoreThreshold = *(static_cast<float const*>(fields[i].data));
-                PLUGIN_VALIDATE(scoreThreshold >= 0.0F);
-                mParam.scoreThreshold = scoreThreshold;
+                mParam.scoreThreshold = *(static_cast<const float*>(fields[i].data));
             }
             if (!strcmp(attrName, "iou_threshold"))
             {
                 PLUGIN_VALIDATE(fields[i].type == PluginFieldType::kFLOAT32);
-                auto const iouThreshold = *(static_cast<float const*>(fields[i].data));
-                PLUGIN_VALIDATE(iouThreshold > 0.0F);
-                mParam.iouThreshold = iouThreshold;
+                mParam.iouThreshold = *(static_cast<const float*>(fields[i].data));
             }
             if (!strcmp(attrName, "max_output_boxes"))
             {
                 PLUGIN_VALIDATE(fields[i].type == PluginFieldType::kINT32);
-                auto const numOutputBoxes = *(static_cast<int32_t const*>(fields[i].data));
-                PLUGIN_VALIDATE(numOutputBoxes > 0);
-                mParam.numOutputBoxes = numOutputBoxes;
+                mParam.numOutputBoxes = *(static_cast<const int*>(fields[i].data));
             }
             if (!strcmp(attrName, "background_class"))
             {
                 PLUGIN_VALIDATE(fields[i].type == PluginFieldType::kINT32);
-                mParam.backgroundClass = *(static_cast<int32_t const*>(fields[i].data));
+                mParam.backgroundClass = *(static_cast<const int*>(fields[i].data));
             }
             if (!strcmp(attrName, "score_activation"))
             {
-                auto const scoreSigmoid = *(static_cast<int32_t const*>(fields[i].data));
+                auto scoreSigmoid = *(static_cast<const int32_t*>(fields[i].data));
                 PLUGIN_VALIDATE(scoreSigmoid == 0 || scoreSigmoid == 1);
                 mParam.scoreSigmoid = static_cast<bool>(scoreSigmoid);
             }
             if (!strcmp(attrName, "box_coding"))
             {
                 PLUGIN_VALIDATE(fields[i].type == PluginFieldType::kINT32);
-                auto const boxCoding = *(static_cast<int32_t const*>(fields[i].data));
-                PLUGIN_VALIDATE(boxCoding == 0 || boxCoding == 1);
-                mParam.boxCoding = boxCoding;
+                mParam.boxCoding = *(static_cast<const int*>(fields[i].data));
             }
         }
 
@@ -506,7 +475,7 @@ IPluginV2DynamicExt* EfficientNMSPluginCreator::createPlugin(const char* name, c
         plugin->setPluginNamespace(mNamespace.c_str());
         return plugin;
     }
-    catch (std::exception const& e)
+    catch (const std::exception& e)
     {
         caughtError(e);
     }

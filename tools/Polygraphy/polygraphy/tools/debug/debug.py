@@ -15,22 +15,18 @@
 # limitations under the License.
 #
 from polygraphy.tools.base import Tool
-from polygraphy.tools.debug.subtool import Build, Precision, Reduce, Repeat
-
-# For backwards compatibility
-from polygraphy.tools.inspect.subtool import DiffTactics
+from polygraphy.tools.debug.subtool import Build, DiffTactics, Precision, Reduce, Repeat
 
 
 class Debug(Tool):
     r"""
     [EXPERIMENTAL] Debug a wide variety of model issues.
 
-    The `debug` subtools work on the same general principles:
+    Most of the `debug` subtools work on the same general principles:
 
     1. Iteratively perform some task that generates some output
     2. Evaluate the generated output to determine if it should be considered `good` or `bad`
     3. Sort any tracked artifacts into `good` and `bad` directories based on (2)
-    4. Make changes if required and then repeat the process
 
     The "some output" referred to in (1) is usually a model file and is written to the current
     directory by default during each iteration.
@@ -40,10 +36,8 @@ class Debug(Tool):
         b. Prompting you. If no `--check` command is provided, the subtool will prompt you in an interactive fashion
             to report whether the iteration passed or failed.
 
-    Per-iteration artifacts to track can be specified with `--artifacts`. When the iteration fails,
+    Artifacts to track can be specified with `--artifacts`. When the iteration fails,
     they are moved into the `bad` directory and otherwise into the `good` directory.
-    Artifacts can be any file or directory. This can be used, for example, to sort logs or
-    TensorRT tactic replay files, or even the per-iteration output (usually a TensorRT engine or ONNX model).
 
     By default, if the status code of the `--check` command is non-zero, the iteration is considered a failure.
     You can optionally use additional command-line options to control what counts as a failure in a more fine-grained way.
@@ -53,7 +47,7 @@ class Debug(Tool):
         * `--fail-returncode` lets you specify a status code to count as a failure, excluding all other non-zeros status
             codes.
 
-    Most subtools also provide a replay mechanism where a 'replay file' containing information about the
+    Most subtools also provide a replay mechanism where a 'debug replay' file containing information about the
     status of each iteration is saved after each iteration. This can then be loaded during subsequent debugging commands
     in order to quickly resume debugging from the same point.
 
@@ -66,11 +60,17 @@ class Debug(Tool):
     def __init__(self):
         super().__init__("debug")
 
-    def get_subtools_impl(self):
-        return "Debug Subtools", [
+    def add_parser_args(self, parser):
+        subparsers = parser.add_subparsers(title="Debug Subtools", dest="subtool")
+        subparsers.required = True
+
+        SUBTOOLS = [
             Build(),
             Precision(),
-            DiffTactics(_issue_deprecation_warning=True),
+            DiffTactics(),
             Reduce(),
             Repeat(),
         ]
+
+        for subtool in SUBTOOLS:
+            subtool.setup_parser(subparsers)

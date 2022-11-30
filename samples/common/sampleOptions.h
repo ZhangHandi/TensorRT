@@ -49,11 +49,10 @@ constexpr float defaultWarmUp{200.F};
 constexpr float defaultDuration{3.F};
 constexpr float defaultSleep{};
 constexpr float defaultIdle{};
-constexpr float defaultPersistentCacheRatio{0};
 
 // Reporting default params
 constexpr int32_t defaultAvgRuns{10};
-constexpr std::array<float, 3> defaultPercentiles{90, 95, 99};
+constexpr float defaultPercentile{99};
 
 enum class PrecisionConstraints
 {
@@ -153,7 +152,6 @@ struct BuildOptions : public Options
     bool save{false};
     bool load{false};
     bool refittable{false};
-    bool heuristic{false};
     SparsityFlag sparsity{SparsityFlag::kDISABLE};
     nvinfer1::ProfilingVerbosity profilingVerbosity{nvinfer1::ProfilingVerbosity::kLAYER_NAMES_ONLY};
     std::string engine;
@@ -166,9 +164,6 @@ struct BuildOptions : public Options
     nvinfer1::TacticSources disabledTactics{0};
     TimingCacheMode timingCacheMode{TimingCacheMode::kLOCAL};
     std::string timingCacheFile{};
-    // C++11 does not automatically generate hash function for enum class.
-    // Use int32_t to support C++11 compilers.
-    std::unordered_map<int32_t, bool> previewFeatures;
     void parse(Arguments& arguments) override;
 
     static void help(std::ostream& out);
@@ -195,7 +190,6 @@ struct InferenceOptions : public Options
     float duration{defaultDuration};
     float sleep{defaultSleep};
     float idle{defaultIdle};
-    float persistentCacheRatio{defaultPersistentCacheRatio};
     bool overlap{true};
     bool skipTransfers{false};
     bool useManaged{false};
@@ -207,7 +201,6 @@ struct InferenceOptions : public Options
     bool timeRefit{false};
     std::unordered_map<std::string, std::string> inputs;
     std::unordered_map<std::string, std::vector<int32_t>> shapes;
-    nvinfer1::ProfilingVerbosity nvtxVerbosity{nvinfer1::ProfilingVerbosity::kLAYER_NAMES_ONLY};
 
     void parse(Arguments& arguments) override;
 
@@ -218,7 +211,7 @@ struct ReportingOptions : public Options
 {
     bool verbose{false};
     int32_t avgs{defaultAvgRuns};
-    std::vector<float> percentiles{defaultPercentiles.begin(), defaultPercentiles.end()};
+    float percentile{defaultPercentile};
     bool refit{false};
     bool output{false};
     bool profile{false};
@@ -268,18 +261,6 @@ struct AllOptions : public Options
 
     void parse(Arguments& arguments) override;
 
-    static void help(std::ostream& out);
-};
-
-struct TaskInferenceOptions : public Options
-{
-    std::string engine;
-    int32_t device{defaultDevice};
-    int32_t DLACore{-1};
-    int32_t batch{batchNotProvided};
-    bool graph{false};
-    float persistentCacheRatio{defaultPersistentCacheRatio};
-    void parse(Arguments& arguments) override;
     static void help(std::ostream& out);
 };
 

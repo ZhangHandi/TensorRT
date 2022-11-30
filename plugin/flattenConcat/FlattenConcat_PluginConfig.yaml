@@ -19,7 +19,4 @@ versions:
       ignoreBatch:
        - 0
        - 1
-    attributes_required:
-      - axis
-      - ignoreBatch
 ...

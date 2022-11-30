@@ -119,7 +119,7 @@ class TestOnnxImporter(object):
             ints_attr=ints_attr,
             strings_attr=strings_attr,
         )
-        node = OnnxImporter.import_node(onnx_node, OrderedDict(), OrderedDict(), opset=11, import_domains=None)
+        node = OnnxImporter.import_node(onnx_node, OrderedDict(), OrderedDict())
         assert node.op == op
         assert node.attrs["float_attr"] == float_attr
         assert node.attrs["int_attr"] == int_attr

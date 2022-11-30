@@ -14,20 +14,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-from polygraphy import constants
+import argparse
+
 from polygraphy.tools.args import (
     ModelArgs,
-    OnnxFromTfArgs,
     OnnxLoadArgs,
+    OnnxFromTfArgs,
     TfLoadArgs,
     TrtLoadNetworkArgs,
     TrtLoadPluginsArgs,
 )
+from polygraphy.tools.base import Tool
 from polygraphy.tools.script import Script, inline, safe
-from polygraphy.tools.template.subtool.base import BaseTemplateTool
 
 
-class TrtNetwork(BaseTemplateTool):
+class TrtNetwork(Tool):
     """
     Generate a template script to create a TensorRT network using the TensorRT network API,
     optionally starting from an existing model.
@@ -36,7 +37,7 @@ class TrtNetwork(BaseTemplateTool):
     def __init__(self):
         super().__init__("trt-network")
 
-    def get_subscriptions_impl(self):
+    def get_subscriptions(self):
         return [
             ModelArgs(model_opt_required=False, input_shapes_opt_name=False),
             TfLoadArgs(allow_artifacts=False),
@@ -46,10 +47,15 @@ class TrtNetwork(BaseTemplateTool):
             TrtLoadNetworkArgs(),
         ]
 
-    def run_impl(self, args):
+    def add_parser_args(self, parser):
+        parser.add_argument(
+            "-o", "--output", help="Path to save the generated script.", type=argparse.FileType("w"), required=True
+        )
+
+    def run(self, args):
         script = Script(summary="Creates a TensorRT Network using the Network API.", always_create_runners=False)
         script.add_import(imports=["func"], frm="polygraphy")
-        script.add_import(imports="tensorrt", imp_as="trt")
+        script.add_import(imports=["tensorrt as trt"])
 
         if self.arg_groups[ModelArgs].path is not None:
             loader_name = self.arg_groups[TrtLoadNetworkArgs].add_to_script(script)
@@ -61,8 +67,6 @@ class TrtNetwork(BaseTemplateTool):
 
         script.append_suffix(safe("@func.extend({:})", inline(loader_name)))
         script.append_suffix(safe("def load_network({:}):", inline(params)))
-        script.append_suffix(
-            safe(f"{constants.TAB}pass # TODO: Set up the network here. This function should not return anything.")
-        )
+        script.append_suffix(safe("\tpass # TODO: Set up the network here. This function should not return anything."))
 
         script.save(args.output)

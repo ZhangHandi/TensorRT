@@ -21,7 +21,6 @@
 #include <iostream>
 
 using namespace nvinfer1;
-using namespace nvinfer1::plugin;
 using nvinfer1::Dims;
 using nvinfer1::plugin::RPROIPlugin;
 using nvinfer1::plugin::RPROIPluginCreator;

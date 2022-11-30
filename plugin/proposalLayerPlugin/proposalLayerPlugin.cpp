@@ -69,29 +69,28 @@ IPluginV2Ext* ProposalLayerPluginCreator::createPlugin(const char* name, const P
     {
         auto imageSize = MaskRCNNConfig::IMAGE_SHAPE;
         const PluginField* fields = fc->fields;
-        plugin::validateRequiredAttributesExist({"prenms_topk", "keep_topk", "iou_threshold"}, fc);
-        for (int32_t i = 0; i < fc->nbFields; ++i)
+        for (int i = 0; i < fc->nbFields; ++i)
         {
-            char const* attrName = fields[i].name;
+            const char* attrName = fields[i].name;
             if (!strcmp(attrName, "prenms_topk"))
             {
                 PLUGIN_VALIDATE(fields[i].type == PluginFieldType::kINT32);
-                mPreNMSTopK = *(static_cast<int32_t const*>(fields[i].data));
+                mPreNMSTopK = *(static_cast<const int*>(fields[i].data));
             }
             if (!strcmp(attrName, "keep_topk"))
             {
                 PLUGIN_VALIDATE(fields[i].type == PluginFieldType::kINT32);
-                mKeepTopK = *(static_cast<int32_t const*>(fields[i].data));
+                mKeepTopK = *(static_cast<const int*>(fields[i].data));
             }
             if (!strcmp(attrName, "iou_threshold"))
             {
                 PLUGIN_VALIDATE(fields[i].type == PluginFieldType::kFLOAT32);
-                mIOUThreshold = *(static_cast<float const*>(fields[i].data));
+                mIOUThreshold = *(static_cast<const float*>(fields[i].data));
             }
             if (!strcmp(attrName, "image_size"))
             {
                 PLUGIN_VALIDATE(fields[i].type == PluginFieldType::kINT32);
-                const auto* const dims = static_cast<int32_t const*>(fields[i].data);
+                const auto* const dims = static_cast<const int32_t*>(fields[i].data);
                 std::copy_n(dims, 3, imageSize.d);
             }
         }
@@ -124,7 +123,7 @@ ProposalLayer::ProposalLayer(int prenms_topk, int keep_topk, float iou_threshold
     , mImageSize(imageSize)
 {
     mBackgroundLabel = -1;
-    PLUGIN_VALIDATE(mPreNMSTopK > 0 && mPreNMSTopK <= 1024);
+    PLUGIN_VALIDATE(mPreNMSTopK > 0);
     PLUGIN_VALIDATE(mKeepTopK > 0);
     PLUGIN_VALIDATE(iou_threshold > 0.0F);
     PLUGIN_VALIDATE(mImageSize.nbDims == 3);

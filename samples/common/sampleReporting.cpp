@@ -48,7 +48,7 @@ float findPercentile(float percentile, std::vector<InferenceTime> const& timings
     {
         return std::numeric_limits<float>::infinity();
     }
-    if (percentile < 0.F || percentile > 100.F)
+    if (percentile < 0.0f || percentile > 100.0f)
     {
         throw std::runtime_error("percentile is not in [0, 100]!");
     }
@@ -171,7 +171,7 @@ void printMetricExplanations(std::ostream& os)
 }
 
 PerformanceResult getPerformanceResult(std::vector<InferenceTime> const& timings,
-    std::function<float(InferenceTime const&)> metricGetter, std::vector<float> const& percentiles)
+    std::function<float(InferenceTime const&)> metricGetter, float percentile)
 {
     auto const metricComparator
         = [metricGetter](InferenceTime const& a, InferenceTime const& b) { return metricGetter(a) < metricGetter(b); };
@@ -183,42 +183,35 @@ PerformanceResult getPerformanceResult(std::vector<InferenceTime> const& timings
     result.max = metricGetter(newTimings.back());
     result.mean = std::accumulate(newTimings.begin(), newTimings.end(), 0.0f, metricAccumulator) / newTimings.size();
     result.median = findMedian(newTimings, metricGetter);
-    for (auto percentile : percentiles)
-    {
-        result.percentiles.emplace_back(findPercentile(percentile, newTimings, metricGetter));
-    }
+    result.percentile = findPercentile(percentile, newTimings, metricGetter);
     result.coeffVar = findCoeffOfVariance(newTimings, metricGetter, result.mean);
     return result;
 }
 
-void printEpilog(std::vector<InferenceTime> const& timings, float walltimeMs, std::vector<float> const& percentiles,
-    int32_t batchSize, std::ostream& osInfo, std::ostream& osWarning, std::ostream& osVerbose)
+void printEpilog(std::vector<InferenceTime> const& timings, float walltimeMs, float percentile, int32_t batchSize,
+    std::ostream& osInfo, std::ostream& osWarning, std::ostream& osVerbose)
 {
     float const throughput = batchSize * timings.size() / walltimeMs * 1000;
 
     auto const getLatency = [](InferenceTime const& t) { return t.latency(); };
-    auto const latencyResult = getPerformanceResult(timings, getLatency, percentiles);
+    auto const latencyResult = getPerformanceResult(timings, getLatency, percentile);
 
     auto const getEnqueue = [](InferenceTime const& t) { return t.enq; };
-    auto const enqueueResult = getPerformanceResult(timings, getEnqueue, percentiles);
+    auto const enqueueResult = getPerformanceResult(timings, getEnqueue, percentile);
 
     auto const getH2d = [](InferenceTime const& t) { return t.h2d; };
-    auto const h2dResult = getPerformanceResult(timings, getH2d, percentiles);
+    auto const h2dResult = getPerformanceResult(timings, getH2d, percentile);
 
     auto const getCompute = [](InferenceTime const& t) { return t.compute; };
-    auto const gpuComputeResult = getPerformanceResult(timings, getCompute, percentiles);
+    auto const gpuComputeResult = getPerformanceResult(timings, getCompute, percentile);
 
     auto const getD2h = [](InferenceTime const& t) { return t.d2h; };
-    auto const d2hResult = getPerformanceResult(timings, getD2h, percentiles);
+    auto const d2hResult = getPerformanceResult(timings, getD2h, percentile);
 
-    auto const toPerfString = [&](const PerformanceResult& r) {
+    auto const toPerfString = [percentile](const PerformanceResult& r) {
         std::stringstream s;
         s << "min = " << r.min << " ms, max = " << r.max << " ms, mean = " << r.mean << " ms, "
-          << "median = " << r.median << " ms";
-        for (int32_t i = 0, n = percentiles.size(); i < n; ++i)
-        {
-            s << ", percentile(" << percentiles[i] << "%) = " << r.percentiles[i] << " ms";
-        }
+          << "median = " << r.median << " ms, percentile(" << percentile << "%) = " << r.percentile << " ms";
         return s.str();
     };
 
@@ -292,11 +285,11 @@ void printPerformanceReport(std::vector<InferenceTrace> const& trace, const Repo
     std::vector<InferenceTime> timings(trace.size() - warmups);
     std::transform(noWarmup, trace.end(), timings.begin(), traceToTiming);
     printTiming(timings, reporting.avgs, osInfo);
-    printEpilog(timings, benchTime, reporting.percentiles, batchSize, osInfo, osWarning, osVerbose);
+    printEpilog(timings, benchTime, reporting.percentile, batchSize, osInfo, osWarning, osVerbose);
 
     if (!reporting.exportTimes.empty())
     {
-        exportJSONTrace(trace, reporting.exportTimes, warmups);
+        exportJSONTrace(trace, reporting.exportTimes);
     }
 }
 
@@ -306,14 +299,13 @@ void printPerformanceReport(std::vector<InferenceTrace> const& trace, const Repo
 //!             "end compute" : time, "start d2h" : time, "end d2h" : time, "h2d" : time, "compute" : time,
 //!             "d2h" : time, "latency" : time }
 //!
-void exportJSONTrace(std::vector<InferenceTrace> const& trace, std::string const& fileName, int32_t const nbWarmups)
+void exportJSONTrace(std::vector<InferenceTrace> const& trace, std::string const& fileName)
 {
     std::ofstream os(fileName, std::ofstream::trunc);
     os << "[" << std::endl;
     char const* sep = "  ";
-    for (auto iter = trace.begin() + nbWarmups; iter < trace.end(); ++iter)
+    for (auto const& t : trace)
     {
-        auto const& t = *iter;
         InferenceTime const it(traceToTiming(t));
         os << sep << "{ ";
         sep = ", ";
@@ -425,21 +417,14 @@ void dumpInputs(nvinfer1::IExecutionContext const& context, Bindings const& bind
     bindings.dumpInputs(context, os);
 }
 
-template <typename ContextType>
-void dumpOutputs(ContextType const& context, Bindings const& bindings, std::ostream& os)
+void dumpOutputs(nvinfer1::IExecutionContext const& context, Bindings const& bindings, std::ostream& os)
 {
     os << "Output Tensors:" << std::endl;
     bindings.dumpOutputs(context, os);
 }
 
-template 
-void dumpOutputs(nvinfer1::IExecutionContext const& context, Bindings const& bindings, std::ostream& os);
-template 
-void dumpOutputs(nvinfer1::safe::IExecutionContext const& context, Bindings const& bindings, std::ostream& os);
-
-template <typename ContextType>
 void exportJSONOutput(
-    ContextType const& context, Bindings const& bindings, std::string const& fileName, int32_t batch)
+    nvinfer1::IExecutionContext const& context, Bindings const& bindings, std::string const& fileName, int32_t batch)
 {
     std::ofstream os(fileName, std::ofstream::trunc);
     std::string sep = "  ";
@@ -460,11 +445,5 @@ void exportJSONOutput(
     }
     os << "]" << std::endl;
 }
-
-template 
-void exportJSONOutput(nvinfer1::IExecutionContext const& context, Bindings const& bindings, std::string const& fileName, int32_t batch);
-
-template 
-void exportJSONOutput(nvinfer1::safe::IExecutionContext const& context, Bindings const& bindings, std::string const& fileName, int32_t batch);
 
 } // namespace sample

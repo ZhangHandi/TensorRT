@@ -48,9 +48,6 @@ class T5Metadata(_T5Metadata, MetadataArgparseInteropMixin):
             action="store_true",
             default=False,
         )
-        network_group.add_argument(
-            "--num-beams", type=int, default=1, help="Enables beam search during decoding."
-        )
 
     @staticmethod
     def from_args(args: argparse.Namespace):

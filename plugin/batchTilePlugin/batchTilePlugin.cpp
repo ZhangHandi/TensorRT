@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 #include "batchTilePlugin.h"
-#include "common/dimsHelpers.h"
-
 #include <cuda_runtime.h>
 #include <iostream>
 #include <numeric>
@@ -155,7 +153,7 @@ void BatchTilePlugin::configurePlugin(const Dims* inputDims, int nbInputs, const
     PLUGIN_ASSERT(nbOutputs == 1);
     PLUGIN_ASSERT(inputDims[1].nbDims == 4);
     PLUGIN_ASSERT(inputDims[1].d[0] == 1);
-    mCopySize = pluginInternal::volume(inputDims[1]) * sizeof(float);
+    mCopySize = std::accumulate(inputDims[1].d, inputDims[1].d + 4, 1, std::multiplies<int>()) * sizeof(float);
 }
 
 bool BatchTilePlugin::supportsFormat(DataType type, PluginFormat format) const noexcept

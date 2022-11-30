@@ -81,6 +81,7 @@ class TestDeviceBuffer:
             assert buf.shape == shapes.new
 
     @pytest.mark.serial  # Sometimes the GPU may run out of memory if too many other tests are also running.
+    @pytest.mark.skipif(mod.version(trt.__version__) < mod.version("7.0"), reason="Breaks TRT 6 tests for some reason")
     def test_large_allocation(self):
         dtype = np.byte
         # See if we can alloc 3GB (bigger than value of signed int)
@@ -89,13 +90,12 @@ class TestDeviceBuffer:
             assert buf.allocated_nbytes == util.volume(shape) * np.dtype(dtype).itemsize
 
     def test_device_buffer_memcpy_async(self):
-        shape = (1, 384)
-        arr = np.ones(shape, dtype=np.int32)
+        arr = np.ones((1, 384), dtype=np.int32)
 
-        with DeviceArray(shape) as buf, Stream() as stream:
+        with DeviceArray() as buf, Stream() as stream:
             buf.copy_from(arr)
 
-            new_arr = np.empty(shape=shape, dtype=np.int32)
+            new_arr = np.empty((1, 384), dtype=np.int32)
             buf.copy_to(new_arr, stream)
 
             stream.synchronize()
@@ -103,13 +103,12 @@ class TestDeviceBuffer:
             assert np.all(new_arr == arr)
 
     def test_device_buffer_memcpy_sync(self):
-        shape = (1, 384)
-        arr = np.ones(shape, dtype=np.int32)
+        arr = np.ones((1, 384), dtype=np.int32)
 
-        with DeviceArray(shape) as buf:
+        with DeviceArray() as buf:
             buf.copy_from(arr)
 
-            new_arr = np.empty(shape=shape, dtype=np.int32)
+            new_arr = np.empty((1, 384), dtype=np.int32)
             buf.copy_to(new_arr)
 
             assert np.all(new_arr == arr)
@@ -126,15 +125,14 @@ class TestDeviceBuffer:
         with DeviceArray(shape=(5, 2, 0, 3, 0), dtype=np.float32) as buf:
             assert util.volume(buf.shape) == 0
 
-            host_buf = np.empty(shape=(5, 2, 0, 3, 0), dtype=np.float32)
-            assert util.volume(host_buf.shape) == 0
+            host_buf = np.empty(tuple(), dtype=np.float32)
+            assert util.volume(host_buf.shape) == 1
 
-            buf.copy_to(host_buf)
+            host_buf = buf.copy_to(host_buf)
             assert host_buf.shape == buf.shape
             assert host_buf.nbytes == 0
             assert util.volume(host_buf.shape) == 0
 
-    @pytest.mark.flaky
     @pytest.mark.serial
     def test_copy_from_overhead(self):
         host_buf = np.ones(shape=(4, 8, 1024, 1024), dtype=np.float32)
@@ -151,9 +149,8 @@ class TestDeviceBuffer:
             copy_from_time = time_func(lambda: dev_buf.copy_from(host_buf))
 
         print(f"memcpy time: {memcpy_time}, copy_from time: {copy_from_time}")
-        assert copy_from_time <= (memcpy_time * 1.05)
+        assert copy_from_time <= (memcpy_time * 1.04)
 
-    @pytest.mark.flaky
     @pytest.mark.serial
     def test_copy_to_overhead(self):
         host_buf = np.ones(shape=(4, 8, 1024, 1024), dtype=np.float32)
@@ -170,12 +167,4 @@ class TestDeviceBuffer:
             copy_to_time = time_func(lambda: dev_buf.copy_to(host_buf))
 
         print(f"memcpy time: {memcpy_time}, copy_to time: {copy_to_time}")
-        assert copy_to_time <= (memcpy_time * 1.05)
-
-    def test_raw(self):
-        with DeviceArray.raw((25,)) as buf:
-            assert buf.shape == (25,)
-            assert buf.nbytes == 25
-            buf.resize((30,))
-            assert buf.shape == (30,)
-            assert buf.nbytes == 30
+        assert copy_to_time <= (memcpy_time * 1.04)

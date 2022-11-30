@@ -24,7 +24,7 @@ versions:
     attribute_options:
       prenms_topk:
         min: "0"
-        max: "=4096"
+        max: "=pinf"
       keep_topk:
         min: "0"
         max: "=pinf"
@@ -37,9 +37,4 @@ versions:
       image_size:
         min: "0, 0, 0"
         max: "=pinf, =1000, =1000" # dims 2 & 3 are capped to avoid timeout
-    attributes_required:
-        - prenms_topk
-        - keep_topk
-        - fg_threshold
-        - iou_threshold
 ...

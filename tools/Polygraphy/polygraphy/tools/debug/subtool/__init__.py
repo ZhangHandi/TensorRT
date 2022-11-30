@@ -1,3 +1,4 @@
+from polygraphy.tools.debug.subtool.diff_tactics import DiffTactics
 from polygraphy.tools.debug.subtool.build import Build
 from polygraphy.tools.debug.subtool.precision import Precision
 from polygraphy.tools.debug.subtool.reduce import Reduce

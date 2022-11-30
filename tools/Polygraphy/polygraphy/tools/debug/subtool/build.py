@@ -22,15 +22,13 @@ class Build(BaseCheckerSubtool):
     r"""
     Repeatedly build an engine to isolate faulty tactics.
 
-    `debug build` follows the same general process as other `debug` subtools (refer to the help output
-    of the `debug` tool for more background information and details).
-
+    `debug build` follows the same general process as other `debug` subtools.
     Specifically, it does the following during each iteration:
 
     1. Builds a TensorRT engine and saves it in the current directory as `polygraphy_debug.engine` by default.
     2. Evaluates it using the `--check` command if it was provided, or in interactive mode otherwise.
     3. Sorts files specified by `--artifacts` into `good` and `bad` directories based on (2).
-        This is useful for sorting tactic replays, which can then be further analyzed with `inspect diff-tactics`.
+        This is useful for sorting tactic replays, which can then be further analyzed with `debug diff-tactics`.
 
     The typical usage of `debug build` is:
 

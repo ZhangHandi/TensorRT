@@ -35,7 +35,7 @@ const char* NORMALIZE_PLUGIN_NAME{"Normalize_TRT"};
 PluginFieldCollection NormalizePluginCreator::mFC{};
 std::vector<PluginField> NormalizePluginCreator::mPluginAttributes;
 
-Normalize::Normalize(Weights const* weights, int nbWeights, bool acrossSpatial, bool channelShared, float eps)
+Normalize::Normalize(const Weights* weights, int nbWeights, bool acrossSpatial, bool channelShared, float eps)
     : acrossSpatial(acrossSpatial)
     , channelShared(channelShared)
     , eps(eps)
@@ -44,13 +44,11 @@ Normalize::Normalize(Weights const* weights, int nbWeights, bool acrossSpatial, 
     PLUGIN_VALIDATE(nbWeights == 1);
     PLUGIN_VALIDATE(weights[0].count >= 1);
     mWeights = copyToDevice(weights[0].values, weights[0].count);
-    mScalarScale = static_cast<float const*>(weights[0].values)[0];
 }
 
 Normalize::Normalize(
-    Weights const* weights, int nbWeights, float scalarScale, bool acrossSpatial, bool channelShared, float eps, int C, int H, int W)
-    : mScalarScale(scalarScale)
-    , acrossSpatial(acrossSpatial)
+    const Weights* weights, int nbWeights, bool acrossSpatial, bool channelShared, float eps, int C, int H, int W)
+    : acrossSpatial(acrossSpatial)
     , channelShared(channelShared)
     , eps(eps)
     , C(C)
@@ -76,7 +74,6 @@ Normalize::Normalize(const void* buffer, size_t length)
 
     mNbWeights = read<int>(d);
     int count = read<int>(d);
-    std::memcpy(&mScalarScale, d, sizeof(float));
     mWeights = deserializeToDevice(d, count);
     PLUGIN_VALIDATE(d == a + length);
 }
@@ -114,19 +111,8 @@ int Normalize::enqueue(
 {
     const void* inputData = inputs[0];
     void* outputData = outputs[0];
-
-    pluginStatus_t status;
-
-    if(acrossSpatial && channelShared) // Since cublasPointerMode_t is CUBLAS_POINTER_MODE_HOST, scale should be on the host
-    {
-        status = normalizeInference(stream, mCublas, acrossSpatial, channelShared, batchSize, C, H, W, eps,
-        &mScalarScale, inputData, outputData, workspace);
-    }
-    else // No risk of device pointers being passed to cublas as alpha or beta
-    {
-        status = normalizeInference(stream, mCublas, acrossSpatial, channelShared, batchSize, C, H, W, eps,
-            static_cast<float const*>(mWeights.values), inputData, outputData, workspace);
-    }
+    pluginStatus_t status = normalizeInference(stream, mCublas, acrossSpatial, channelShared, batchSize, C, H, W, eps,
+        static_cast<const float*>(mWeights.values), inputData, outputData, workspace);
 
     return status;
 }
@@ -268,7 +254,7 @@ IPluginV2Ext* Normalize::clone() const noexcept
     try
     {
         // Create a new instance
-        IPluginV2Ext* plugin = new Normalize(&mWeights, mNbWeights, mScalarScale, acrossSpatial, channelShared, eps, C, H, W);
+        IPluginV2Ext* plugin = new Normalize(&mWeights, mNbWeights, acrossSpatial, channelShared, eps, C, H, W);
 
         // Set the namespace
         plugin->setPluginNamespace(mPluginNamespace.c_str());

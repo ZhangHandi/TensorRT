@@ -22,6 +22,7 @@
 
 #include <cstring>
 #include <vector>
+#include <iostream>
 
 using namespace nvinfer1;
 using namespace nvinfer1::plugin;
@@ -29,7 +30,7 @@ using namespace nvinfer1::plugin;
 namespace bert
 {
 
-int32_t launch_small_hface(cudaStream_t stream, const int32_t ld, const int32_t total, const int8_t* input,
+int32_t launch_small_hface(cudaStream_t stream, const int32_t ld, const int32_t total, const half* input,
     const int8_t* skip, const half* beta, const half* gamma, int8_t* output, const float dqScaleIn,
     const float dqScaleSkip, const float qScale);
 
@@ -186,7 +187,19 @@ bool SkipLayerNormInterleavedPluginBase::supportsFormatCombination(
     PLUGIN_ASSERT(nbOutputs == getNbOutputs());
 
     const PluginTensorDesc& desc = inOut[pos];
-    return desc.type == DataType::kINT8 && desc.format == TensorFormat::kCHW32;
+    //std::cout << "zhd pos: " << pos << std::endl;
+    //std::cout << "data type: " << dysize(static_cast<const int>(desc.type)) << std::endl;
+    if (pos == 1 || pos == 2)
+    {
+        //std::cout << "skip layernorm interleaved pos 1 or 2: " << (desc.type == DataType::kINT8) << std::endl;
+        return desc.type == DataType::kINT8 && desc.format == TensorFormat::kCHW32;
+    }
+    if (pos == 0)
+    {
+        //std::cout << "skip layernorm interleaved pos 0: " << (desc.type == DataType::kHALF) << std::endl;
+        return desc.type == DataType::kHALF && desc.format == TensorFormat::kCHW32;
+    }
+    return desc.format == TensorFormat::kCHW32;
 }
 
 void SkipLayerNormInterleavedPluginBase::configurePlugin(const DynamicPluginTensorDesc* inputs, int32_t nbInputs,
@@ -195,7 +208,8 @@ void SkipLayerNormInterleavedPluginBase::configurePlugin(const DynamicPluginTens
     // Validate input arguments
     PLUGIN_ASSERT(nbOutputs == getNbOutputs());
     PLUGIN_ASSERT(nbInputs == 2);
-    PLUGIN_ASSERT(DataType::kINT8 == inputs[0].desc.type);
+    //PLUGIN_ASSERT(DataType::kINT8 == inputs[0].desc.type);
+    PLUGIN_ASSERT(DataType::kHALF == inputs[0].desc.type);
     PLUGIN_ASSERT(DataType::kINT8 == inputs[1].desc.type);
 
     const auto& inDims0 = inputs[0].desc.dims;
@@ -203,6 +217,16 @@ void SkipLayerNormInterleavedPluginBase::configurePlugin(const DynamicPluginTens
     TRT_UNUSED inDims1;
 
     PLUGIN_ASSERT(inDims0.nbDims == inDims1.nbDims);
+    //std::cout << "inDims0.d[0]" << inDims0.d[0] << std::endl;
+    //std::cout << "inDims0.d[1]" << inDims0.d[1] << std::endl;
+    //std::cout << "inDims0.d[2]" << inDims0.d[2] << std::endl;
+    //std::cout << "inDims0.d[3]" << inDims0.d[3] << std::endl;
+    //std::cout << "inDims0.nbDims" << inDims0.nbDims << std::endl;
+    //std::cout << "inDims1.d[0]" << inDims1.d[0] << std::endl;
+    //std::cout << "inDims1.d[1]" << inDims1.d[1] << std::endl;
+    //std::cout << "inDims1.d[2]" << inDims1.d[2] << std::endl;
+    //std::cout << "inDims1.d[3]" << inDims1.d[3] << std::endl;
+
     PLUGIN_ASSERT(std::equal(inDims0.d, inDims0.d + inDims0.nbDims, inDims1.d));
 
     mParamWordsize = getElementSize(param_type);
@@ -230,20 +254,33 @@ void checkDescs(const PluginTensorDesc& iDesc, const PluginTensorDesc& sDesc, co
     PLUGIN_ASSERT(iDesc.dims.d[0] == 1);
     PLUGIN_ASSERT(iDesc.dims.d[3] == 1);
     PLUGIN_ASSERT(iDesc.format == TensorFormat::kCHW32);
-    PLUGIN_ASSERT(iDesc.type == DataType::kINT8);
+    //PLUGIN_ASSERT(iDesc.type == DataType::kINT8);
+    PLUGIN_ASSERT(iDesc.type == DataType::kHALF);
     PLUGIN_ASSERT(iDesc.format == sDesc.format);
     PLUGIN_ASSERT(iDesc.format == oDesc.format);
-    PLUGIN_ASSERT(iDesc.type == sDesc.type);
-    PLUGIN_ASSERT(iDesc.type == oDesc.type);
+    //PLUGIN_ASSERT(iDesc.type == sDesc.type);
+    //PLUGIN_ASSERT(iDesc.type == oDesc.type);
+    PLUGIN_ASSERT(sDesc.type == oDesc.type)
+}
+
+inline size_t ProductDim(const nvinfer1::Dims& dims) {
+  size_t v = 1;
+  for (int i = 0; i < dims.nbDims; i++) {
+    v *= dims.d[i];
+  }
+  return v;
 }
 
 int32_t SkipLayerNormInterleavedPluginHFace::enqueue(const PluginTensorDesc* inputDesc,
     const PluginTensorDesc* outputDesc, const void* const* inputs, void* const* outputs, void* workspace,
     cudaStream_t stream) noexcept
 {
+    //std::cout << "skip layernorm interleaved plugin 1" << std::endl;
     // Input shape: 1x(hxd)xtotalx1
     const auto iDesc = inputDesc[0];
+    //std::cout << "input 0 type: " << static_cast<int>(iDesc.type) << std::endl;
     const auto sDesc = inputDesc[1];
+    //std::cout << "input 1 type: " << static_cast<int>(sDesc.type) << std::endl;
     const auto oDesc = outputDesc[0];
     checkDescs(iDesc, sDesc, oDesc);
 
@@ -252,19 +289,43 @@ int32_t SkipLayerNormInterleavedPluginHFace::enqueue(const PluginTensorDesc* inp
     const float dqScaleIn = iDesc.scale;
     const float dqScaleSkip = sDesc.scale;
     const float qScale = 1.F / oDesc.scale;
-    const int8_t* input = static_cast<const int8_t*>(inputs[0]);
+    const int8_t* input_int = static_cast<const int8_t*>(inputs[0]);
+    const half* input_half = static_cast<const half*>(inputs[0]);
     const int8_t* skip = static_cast<const int8_t*>(inputs[1]);
     int8_t* output = static_cast<int8_t*>(outputs[0]);
     const half* gamma = static_cast<const half*>(mGammaDev.get());
     const half* beta = static_cast<const half*>(mBetaDev.get());
 
+    //std::cout << "scale in: " << dqScaleIn << std::endl;
+    //std::cout << "scale skip: " << dqScaleSkip << std::endl;
+    //std::cout << "scale out: " << qScale << std::endl;
+    //size_t num1 = ProductDim(iDesc.dims);
+    //size_t num2 = ProductDim(sDesc.dims);
+    //size_t size1 = sizeof(half) * num1;
+    //size_t size2 = sizeof(int8_t) * num2;
+    //half* d_in1 = reinterpret_cast<half*>(malloc(size1));
+    //int8_t* d_in2 = reinterpret_cast<int8_t*>(malloc(size2));
+    //cudaMemcpy(d_in1, input_half, size1, cudaMemcpyDeviceToHost);
+    //cudaMemcpy(d_in2, skip, size2, cudaMemcpyDeviceToHost);
+    //std::cout << "input1: ";
+    //for (int i=0; i<10; i++) {
+    //  std::cout << +d_in1[i] << ", ";
+    //}
+    //std::cout << std::endl;
+    //std::cout << "input2: ";
+    //for (int i=0; i<10; i++) {
+    //  std::cout << +d_in2[i] << ", ";
+    //}
+    //std::cout << std::endl;
+
     if (total < 4096)
     {
-        return launch_small_hface(stream, ld, total, input, skip, beta, gamma, output, dqScaleIn, dqScaleSkip, qScale);
+        //std::cout << "skln interleaved total < 40961" << std::endl;
+        return launch_small_hface(stream, ld, total, input_half, skip, beta, gamma, output, dqScaleIn, dqScaleSkip, qScale);
     }
     else
     {
-        return launch_large_hface(stream, ld, total, input, skip, beta, gamma, output, dqScaleIn, dqScaleSkip, qScale);
+        return launch_large_hface(stream, ld, total, input_int, skip, beta, gamma, output, dqScaleIn, dqScaleSkip, qScale);
     }
 }
 
@@ -423,6 +484,7 @@ SkipLayerNormInterleavedPluginHFaceCreator::SkipLayerNormInterleavedPluginHFaceC
 {
 }
 
+
 SkipLayerNormInterleavedPluginMTronCreator::SkipLayerNormInterleavedPluginMTronCreator()
     : SkipLayerNormInterleavedPluginBaseCreator()
 {
@@ -450,8 +512,6 @@ const PluginFieldCollection* SkipLayerNormInterleavedPluginBaseCreator::getField
 
 void buildBetaAndGamma(const PluginFieldCollection* fc, Weights& beta, Weights& gamma)
 {
-    plugin::validateRequiredAttributesExist({"beta", "gamma"}, fc);
-
     for (int32_t i = 0; i < fc->nbFields; i++)
     {
         std::string field_name(fc->fields[i].name);

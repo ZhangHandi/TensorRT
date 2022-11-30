@@ -17,7 +17,6 @@
 
 #include <cstring>
 #include <cuda.h>
-#include <set>
 #include <vector>
 
 #include "NvInfer.h"
@@ -66,11 +65,10 @@ EmbLayerNormVarSeqlenPluginBase::EmbLayerNormVarSeqlenPluginBase(std::string con
     , mType(type)
 {
     // Assuming Weights.count is the number of elements and not bytes
-    PLUGIN_VALIDATE(beta.count == gamma.count);
-    PLUGIN_VALIDATE(mLd > 0U);
-    PLUGIN_VALIDATE(wordEmb.count % mLd == 0);
-    PLUGIN_VALIDATE(posEmb.count % mLd == 0);
-    PLUGIN_VALIDATE(tokEmb.count % mLd == 0);
+    PLUGIN_ASSERT(beta.count == gamma.count);
+    PLUGIN_ASSERT(wordEmb.count % mLd == 0);
+    PLUGIN_ASSERT(posEmb.count % mLd == 0);
+    PLUGIN_ASSERT(tokEmb.count % mLd == 0);
     mWordVocabSize = wordEmb.count / mLd;
     mPosVocabSize = posEmb.count / mLd;
     mTokVocabSize = tokEmb.count / mLd;
@@ -259,25 +257,37 @@ bool EmbLayerNormVarSeqlenPluginBase::supportsFormatCombination(
     PLUGIN_ASSERT(nbInputs == 4);
     // The two outputs of the plugin are embedding and the mask
     PLUGIN_ASSERT(nbOutputs == 2);
+    //std::cout << "emblayernorm test! " << std::endl;
 
     PluginTensorDesc const& desc = inOut[pos];
     if (desc.format != TensorFormat::kLINEAR)
     {
+        //std::cout << "desc format != klinear" << std::endl;
         return false;
     }
     if (pos == 0 || pos == 2) // input_ids and cu_seqlens
     {
+        //std::cout << "desc type = kint32 pos 0/2" << std::endl;
+        //std::cout << "pos = 0 dims d[0]: " << desc.dims.d[0] << std::endl;
         return desc.type == DataType::kINT32 && desc.dims.nbDims == 1;
     }
 
     PluginTensorDesc const& prev = inOut[pos - 1];
     if (pos == 1) // segment ids: check it's the same as input_ids
     {
+        //std::cout << "desc type == kint32" << (desc.type == DataType::kINT32) << std::endl;
+        //std::cout << "desc dims ndims : " << desc.dims.nbDims << std::endl;
+        //std::cout << "desc dims d[0] == prev.dims.d[0] : " << (desc.dims.d[0] == prev.dims.d[0]) << std::endl; 
+        //std::cout << "desc dims d[0]: " << desc.dims.d[0] << std::endl;
+        //std::cout << "desc dims d: " << desc.dims.d << std::endl;
+        //std::cout << "prev.dims.d[0]: " << prev.dims.d[0] << std::endl;
+        //std::cout << "prev.dims.d: " << prev.dims.d << std::endl;
         return desc.type == DataType::kINT32 && desc.dims.nbDims == 1 && desc.dims.d[0] == prev.dims.d[0];
     }
 
     if (pos == 3)
     {
+        //std::cout << "desc dims nbdims =1 " << std::endl;
         return desc.dims.nbDims == 1;
     }
 
@@ -288,6 +298,10 @@ bool EmbLayerNormVarSeqlenPluginBase::supportsFormatCombination(
             && desc.dims.d[2] == 1 && desc.dims.d[3] == 1;
     }
     // mask
+    if (pos == 4 || pos == 5)
+    {
+        //std::cout << "embElementLayerNorm: " << (desc.type == DataType::kHALF) << std::endl; 
+    }
     return desc.type == DataType::kHALF;
 }
 
@@ -670,15 +684,6 @@ bool initializeFields(char const* name, PluginFieldCollection const* fc, Weights
     Weights& word_emb, Weights& pos_emb, Weights& tok_emb)
 {
     bool output_fp16 = false;
-    std::set<std::string> const requiredAttributes{
-        "bert_embeddings_layernorm_beta",
-        "bert_embeddings_layernorm_gamma",
-        "bert_embeddings_word_embeddings",
-        "bert_embeddings_token_type_embeddings",
-        "bert_embeddings_position_embeddings",
-    };
-    plugin::validateRequiredAttributesExist(requiredAttributes, fc);
-
     for (int32_t i = 0; i < fc->nbFields; i++)
     {
         std::string field_name(fc->fields[i].name);
@@ -738,16 +743,11 @@ IPluginV2* EmbLayerNormVarSeqlenPluginHFaceCreator::createPlugin(
     {
         BERT_DEBUG_MSG("EmbLayerNormVarSeqlenHFace createPlugin");
 
-        Weights beta{};  // required attribute: validateRequiredAttributesExist() call in initializeFields() will verify
-                         // existence
-        Weights gamma{}; // required attribute: validateRequiredAttributesExist() call in initializeFields() will verify
-                         // existence
-        Weights word_emb{}; // required attribute: validateRequiredAttributesExist() call in initializeFields() will
-                            // verify existence
-        Weights pos_emb{};  // required attribute: validateRequiredAttributesExist() call in initializeFields() will
-                            // verify existence
-        Weights tok_emb{};  // required attribute: validateRequiredAttributesExist() call in initializeFields() will
-                            // verify existence
+        Weights beta;
+        Weights gamma;
+        Weights word_emb;
+        Weights pos_emb;
+        Weights tok_emb;
         bool output_fp16 = initializeFields(name, fc, beta, gamma, word_emb, pos_emb, tok_emb);
 
         BERT_DEBUG_MSG("Building the Plugin...");
@@ -769,16 +769,11 @@ IPluginV2* EmbLayerNormVarSeqlenPluginMTronCreator::createPlugin(
     {
         BERT_DEBUG_MSG("EmbLayerNormVarSeqlenMTron createPlugin");
 
-        Weights beta{};  // required attribute: validateRequiredAttributesExist() call in initializeFields() will verify
-                         // existence
-        Weights gamma{}; // required attribute: validateRequiredAttributesExist() call in initializeFields() will verify
-                         // existence
-        Weights word_emb{}; // required attribute: validateRequiredAttributesExist() call in initializeFields() will
-                            // verify existence
-        Weights pos_emb{};  // required attribute: validateRequiredAttributesExist() call in initializeFields() will
-                            // verify existence
-        Weights tok_emb{};  // required attribute: validateRequiredAttributesExist() call in initializeFields() will
-                            // verify existence
+        Weights beta;
+        Weights gamma;
+        Weights word_emb;
+        Weights pos_emb;
+        Weights tok_emb;
         bool output_fp16 = initializeFields(name, fc, beta, gamma, word_emb, pos_emb, tok_emb);
 
         BERT_DEBUG_MSG("Building the Plugin...");

@@ -19,7 +19,7 @@
 import sys
 import tensorflow as tf
 from tensorflow_quantization.custom_qdq_cases import MobileNetQDQCase
-from examples.utils import get_tfkeras_model
+from examples.mobilenet.mobilenet_utils import get_mobilenet_model
 from tests.onnx_graph_qdq_validator import validate_quantized_model
 from tensorflow_quantization.utils import CreateAssetsFolders
 import pytest
@@ -35,7 +35,7 @@ def test_mobilenetv1_quantize_full():
     this_function_name = sys._getframe().f_code.co_name
 
     # Instantiate Baseline model
-    nn_model_original = get_tfkeras_model(model_name="mobilenet_v1")
+    nn_model_original = get_mobilenet_model(model_name="mobilenet_v1")
 
     custom_qdq_cases = [MobileNetQDQCase()]
     q_model, validated = validate_quantized_model(
@@ -54,7 +54,7 @@ def test_mobilenetv2_quantize_full():
     this_function_name = sys._getframe().f_code.co_name
 
     # Instantiate Baseline model
-    nn_model_original = get_tfkeras_model(model_name="mobilenet_v2")
+    nn_model_original = get_mobilenet_model(model_name="mobilenet_v2")
 
     custom_qdq_cases = [MobileNetQDQCase()]
     q_model, validated = validate_quantized_model(

@@ -112,4 +112,4 @@ This `README.md` file was recreated, updated and reviewed.
 
 # Known issues
 
-When installing the requirements with Python 3.10, there is a known issue for building onnx. The recommendation is to use a python version < 3.10 when running the sample.
+There are no known issues in this sample.

@@ -169,7 +169,7 @@ class GPT2Converter(ModelFileConverter):
                 **inputs.get_torch_dynamic_axis_encoding(),
                 **outputs.get_torch_dynamic_axis_encoding(),
             },
-            training=torch.onnx.TrainingMode.EVAL,
+            training=False,
             **opt_args
         )
         return GPT2ONNXFile(output_fpath, network_metadata)

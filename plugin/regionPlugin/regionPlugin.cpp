@@ -18,7 +18,6 @@
 #include <cstring>
 
 using namespace nvinfer1;
-using namespace nvinfer1::plugin;
 using nvinfer1::plugin::Region;
 using nvinfer1::plugin::RegionParameters; // Needed for Windows Build
 using nvinfer1::plugin::RegionPluginCreator;

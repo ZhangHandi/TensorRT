@@ -26,6 +26,7 @@
 // This plugin provides CombinedNMS op compatibility for TF-TRT in Explicit Batch
 // and Dymamic Shape modes
 
+using namespace nvinfer1::plugin;
 namespace nvinfer1
 {
 namespace plugin

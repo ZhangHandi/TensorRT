@@ -57,7 +57,7 @@ static void printPerfStructure(const customMatmulPerf_t& perf, int const& m, int
     AlgoProps p;
     p.populate(perf.algo);
     /* Calculate GFLOPS */
-    double timeAvg = perf.time * 1e-3; // Convert to seconds. It has been divided by kernelRepeats in customMatmulRun().
+    double timeAvg = (perf.time * 1e-3) / kernelRepeats; // Convert to seconds, then divide by loops
     double gflop = (2 * static_cast<unsigned long long int>(m * n) * k) * 1e-9; // Real
 
     gLogVerbose << "Algo=" << p.algoId << " Tile=" << p.tile << " (" << matmulTileName[p.tile] << ") K=" << p.numSplitsK << " Red.Sch.=" << p.reductionScheme << " Swiz=" << p.swizzle << " Cust=" << p.customOption << " Stat=" << perf.status << " Time=" << perf.time << " WSbytes=" << perf.workspaceSize << " math=" << p.mathMode << " waves=" << perf.wavesCount << "GFlops=" << (gflop / timeAvg) << std::endl;
@@ -728,12 +728,11 @@ IPluginV2* FCPluginDynamicCreator::createPlugin(const char* name, const PluginFi
     {
         gLogVerbose << "Creating FCPluginDynamicCreator...\n";
 
-        int32_t outDims = 0;
-        int32_t typeId = -1;
+        int outDims = 0;
+        int typeId = -1;
         Weights W{DataType::kFLOAT, nullptr, 0ll};
-        plugin::validateRequiredAttributesExist({"out_dims", "type_id", "W"}, fc);
 
-        for (int32_t i = 0; i < fc->nbFields; i++)
+        for (int i = 0; i < fc->nbFields; i++)
         {
             std::string field_name(fc->fields[i].name);
             if (field_name.compare("out_dims") == 0)

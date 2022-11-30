@@ -27,6 +27,7 @@
 #include <cassert>
 #include <cstring>
 #include <vector>
+#include <iostream>
 
 using namespace nvinfer1;
 using namespace nvinfer1::plugin;
@@ -158,7 +159,6 @@ template <typename T, unsigned TPB, bool hasBias>
 __global__ void skipLayerNormKernelSmall(
     const int ld, const T* input, const T* skip, const T* beta, const T* gamma, T* output, const T* bias)
 {
-
     const T rld = T(1) / T(ld);
     const int offset = blockIdx.x * ld;
 
@@ -257,22 +257,26 @@ int computeSkipLayerNorm(cudaStream_t stream, const int ld, const int n, const T
     constexpr int VPT = 16 / sizeof(T);
     if (ld <= 32)
     {
+        //std::cout << "compute skip layernorm ld < 32" << std::endl;
         constexpr int blockSize = 32;
         skipLayerNormKernelSmall<T, blockSize, hasBias>
             <<<gridSize, blockSize, 0, stream>>>(ld, input, skip, beta, gamma, output, bias);
     }
     else if (ld == 768)
     {
+        //std::cout << "compute skip layernorm ld == 768" << std::endl;
         constexpr int TPB = 768 / VPT;
         skipln_vec<T, TPB, VPT, hasBias><<<gridSize, TPB, 0, stream>>>(ld, input, skip, output, beta, gamma, bias);
     }
     else if (ld == 1024)
     {
+        //std::cout << "compute skip layernorm ld == 1024" << std::endl;
         constexpr int TPB = 1024 / VPT;
         skipln_vec<T, TPB, VPT, hasBias><<<gridSize, TPB, 0, stream>>>(ld, input, skip, output, beta, gamma, bias);
     }
     else
     {
+        //std::cout << "compute skip layernorm ld else" << std::endl;
         constexpr int blockSize = 256;
         skipLayerNormKernel<T, blockSize, hasBias>
             <<<gridSize, blockSize, 0, stream>>>(ld, input, skip, beta, gamma, output, bias);

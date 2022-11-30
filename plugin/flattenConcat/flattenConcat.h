@@ -36,7 +36,7 @@ public:
     FlattenConcat(int concatAxis, bool ignoreBatch);
 
     FlattenConcat(int concatAxis, bool ignoreBatch, int numInputs, int outputConcatAxis, const int* inputConcatAxis,
-        const size_t* copySize, nvinfer1::Dims const& chwDims);
+        const size_t* copySize);
 
     FlattenConcat(const void* data, size_t length);
 

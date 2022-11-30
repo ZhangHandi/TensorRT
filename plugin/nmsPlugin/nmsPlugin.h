@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+using namespace nvinfer1::plugin;
 namespace nvinfer1
 {
 namespace plugin

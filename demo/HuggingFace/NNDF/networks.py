@@ -54,8 +54,8 @@ Precision = namedtuple("Precision", ["fp16"])
 """NetworkMetadata(variant: str, precision: Precision, other: Union[namedtuple, None])"""
 NetworkMetadata = namedtuple("NetworkMetadata", ["variant", "precision", "other"])
 
-"""TimingProfile(iterations: int, number: int, warmup: int, duration: int, percentile: int or [int])"""
-TimingProfile = namedtuple("TimingProfile", ["iterations", "number", "warmup", "duration", "percentile"])
+"""TimingProfile(iterations: int, repeat: int)"""
+TimingProfile = namedtuple("TimingProfile", ["iterations", "number", "warmup", "duration"])
 
 
 """NetworkModel(name: str, fpath: str)"""
@@ -92,7 +92,7 @@ class Dims:
         Return:
             str: Returns a sequence dimension which Dims.SEQUENCE appended by dim_type.
         """
-        return Dims.SEQUENCE + "_" + dim_type
+        return Dims.SEQUENCE + dim_type
 
     def get_dims(self):
         """
@@ -121,10 +121,10 @@ class Dims:
         dynamic_axes = {}
         for k, v in self.encoding.items():
             encodings = []
-            for idx, e in enumerate(v):
+            for e in v:
                 if isinstance(e, str) and (e == self.BATCH or self.SEQUENCE in e):
-                    encodings.append((idx, e))
-            dynamic_axes[k] = {idx: e for idx, e in encodings}
+                    encodings.append(e)
+            dynamic_axes[k] = {c: v for c, v in enumerate(encodings)}
 
         return dynamic_axes
 

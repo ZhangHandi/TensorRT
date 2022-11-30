@@ -63,8 +63,7 @@ IPluginV2Ext* DetectionLayerPluginCreator::createPlugin(const char* name, const 
 {
     try
     {
-        plugin::validateRequiredAttributesExist({"num_classes", "keep_topk", "score_threshold", "iou_threshold"}, fc);
-        PluginField const* fields = fc->fields;
+        const PluginField* fields = fc->fields;
         for (int i = 0; i < fc->nbFields; ++i)
         {
             const char* attrName = fields[i].name;

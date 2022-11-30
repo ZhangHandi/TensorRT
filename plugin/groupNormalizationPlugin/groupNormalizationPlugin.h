@@ -101,18 +101,10 @@ private:
     int mChannelVolume;
 
     cudnnHandle_t _cudnn_handle;
-    // Describes input and output.
-    cudnnTensorDescriptor_t desc;
-    cudnnTensorDescriptor_t bnDesc;
+    cudnnTensorDescriptor_t desc, bnDesc; // describes input and output
     // These are buffers initialized to 1 and 0 respectively
-    std::shared_ptr<CudaBind<float>> mBnScales{};
-    std::shared_ptr<CudaBind<float>> mBnBias{};
-    size_t mNbScaleBias{};
-
-    using IPluginV2::getOutputDimensions;
-    using IPluginV2::getWorkspaceSize;
-    using IPluginV2::enqueue;
-    using IPluginV2Ext::configurePlugin;
+    void* bnScale{};
+    void* bnBias{};
 };
 
 class GroupNormalizationPluginCreator : public IPluginCreator

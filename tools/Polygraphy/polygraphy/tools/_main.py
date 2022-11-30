@@ -27,15 +27,11 @@ def main():
     """
     import argparse
     import sys
-    import time
 
     import polygraphy
     from polygraphy.exception import PolygraphyException
     from polygraphy.logger import G_LOGGER
     from polygraphy.tools.registry import TOOL_REGISTRY
-
-    start_time = time.time()
-    cmd = f"{' '.join(sys.argv)}"
 
     parser = argparse.ArgumentParser(
         description="Polygraphy: A Deep Learning Debugging Toolkit",
@@ -57,24 +53,12 @@ def main():
         G_LOGGER.error(f"Unrecognized Options: {unknown}")
         return 1
 
-    selected_tool = args.subcommand
-    show_start_end_logging = False
+    G_LOGGER.verbose(f"Running Command: {' '.join(sys.argv)}")
 
     try:
-        selected_tool.parse(args)
-        show_start_end_logging = selected_tool.show_start_end_logging(args)
-
-        if show_start_end_logging:
-            G_LOGGER.start(f"RUNNING | Command: {cmd}")
-
-        status = selected_tool.run(args)
+        status = args.subcommand(args)
     except PolygraphyException:
         # `PolygraphyException`s indicate user error, so we need not display the stack trace.
         status = 1
-
-    end_time = time.time()
-    if show_start_end_logging:
-        log_func = G_LOGGER.finish if status == 0 else G_LOGGER.error
-        log_func(f"{'PASSED' if status == 0 else 'FAILED'} | Runtime: {end_time - start_time:.3f}s | Command: {cmd}")
 
     return status
