@@ -1,24 +1,13 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) [![Documentation](https://img.shields.io/badge/TensorRT-documentation-brightgreen.svg)](https://docs.nvidia.com/deeplearning/sdk/tensorrt-developer-guide/index.html)
 
 # TensorRT Open Source Software
-This repository contains the Open Source Software (OSS) components of NVIDIA TensorRT. It includes the sources for TensorRT plugins and parsers (Caffe and ONNX), as well as sample applications demonstrating usage and capabilities of the TensorRT platform. These open source software components are a subset of the TensorRT General Availability (GA) release with some extensions and bug-fixes.
+This repository contains the Open Source Software (OSS) components of NVIDIA TensorRT. Included are the sources for TensorRT plugins and parsers (Caffe and ONNX), as well as sample applications demonstrating usage and capabilities of the TensorRT platform. These open source software components are a subset of the TensorRT General Availability (GA) release with some extensions and bug-fixes.
 
 * For code contributions to TensorRT-OSS, please see our [Contribution Guide](CONTRIBUTING.md) and [Coding Guidelines](CODING-GUIDELINES.md).
 * For a summary of new additions and updates shipped with TensorRT-OSS releases, please refer to the [Changelog](CHANGELOG.md).
 * For business inquiries, please contact [researchinquiries@nvidia.com](mailto:researchinquiries@nvidia.com)
 * For press and other inquiries, please contact Hector Marinez at [hmarinez@nvidia.com](mailto:hmarinez@nvidia.com)
 
-Need enterprise support? NVIDIA global support is available for TensorRT with the [NVIDIA AI Enterprise software suite](https://www.nvidia.com/en-us/data-center/products/ai-enterprise/). Check out [NVIDIA LaunchPad](https://www.nvidia.com/en-us/launchpad/ai/ai-enterprise/) for free access to a set of hands-on labs with TensorRT hosted on NVIDIA infrastructure.
-
-Join the [TensorRT and Triton community](https://www.nvidia.com/en-us/deep-learning-ai/triton-tensorrt-newsletter/) and stay current on the latest product updates, bug fixes, content, best practices, and more.
-
-# Prebuilt TensorRT Python Package
-We provide the TensorRT Python package for an easy installation. \
-To install:
-```bash
-pip install tensorrt
-```
-You can skip the **Build** section to enjoy TensorRT with Python.
 
 # Build
 
@@ -26,16 +15,16 @@ You can skip the **Build** section to enjoy TensorRT with Python.
 To build the TensorRT-OSS components, you will first need the following software packages.
 
 **TensorRT GA build**
-* [TensorRT](https://developer.nvidia.com/nvidia-tensorrt-download) v8.5.1.7
+* [TensorRT](https://developer.nvidia.com/nvidia-tensorrt-download) v8.4.1.5
 
 **System Packages**
 * [CUDA](https://developer.nvidia.com/cuda-toolkit)
   * Recommended versions:
-  * cuda-11.8.0 + cuDNN-8.6
+  * cuda-11.6.x + cuDNN-8.4
   * cuda-10.2 + cuDNN-8.4
 * [GNU make](https://ftp.gnu.org/gnu/make/) >= v4.1
 * [cmake](https://github.com/Kitware/CMake/releases) >= v3.13
-* [python](<https://www.python.org/downloads/>) >= v3.6.9, <= v3.10.x
+* [python](<https://www.python.org/downloads/>) >= v3.6.9
 * [pip](https://pypi.org/project/pip/#history) >= v19.0
 * Essential utilities
   * [git](https://git-scm.com/downloads), [pkg-config](https://www.freedesktop.org/wiki/Software/pkg-config/), [wget](https://www.gnu.org/software/wget/faq.html#download)
@@ -46,6 +35,7 @@ To build the TensorRT-OSS components, you will first need the following software
   * [NVIDIA Container Toolkit](https://github.com/NVIDIA/nvidia-docker)
 * Toolchains and SDKs
   * (Cross compilation for Jetson platform) [NVIDIA JetPack](https://developer.nvidia.com/embedded/jetpack) >= 5.0 (current support only for TensorRT 8.4.0)
+  * (For Windows builds) [Visual Studio](https://visualstudio.microsoft.com/vs/older-downloads/) 2017 Community or Enterprise edition
   * (Cross compilation for QNX platform) [QNX Toolchain](https://blackberry.qnx.com/en)
 * PyPI packages (for demo applications/tests)
   * [onnx](https://pypi.org/project/onnx/) 1.9.0
@@ -70,18 +60,27 @@ To build the TensorRT-OSS components, you will first need the following software
 	git submodule update --init --recursive
 	```
 
-2. #### (Optional - if not using TensorRT container) Specify the TensorRT GA release build path
+2. #### (Optional - if not using TensorRT container) Specify the TensorRT GA release build
 
     If using the TensorRT OSS build container, TensorRT libraries are preinstalled under `/usr/lib/x86_64-linux-gnu` and you may skip this step.
 
     Else download and extract the TensorRT GA build from [NVIDIA Developer Zone](https://developer.nvidia.com/nvidia-tensorrt-download).
 
-    **Example: Ubuntu 20.04 on x86-64 with cuda-11.8.0**
+    **Example: Ubuntu 20.04 on x86-64 with cuda-11.6.2**
 
     ```bash
     cd ~/Downloads
-    tar -xvzf TensorRT-8.5.1.7.Linux.x86_64-gnu.cuda-11.8.cudnn8.6.tar.gz
-    export TRT_LIBPATH=`pwd`/TensorRT-8.5.1.7
+    tar -xvzf TensorRT-8.4.1.5.Linux.x86_64-gnu.cuda-11.6.cudnn8.4.tar.gz
+    export TRT_LIBPATH=`pwd`/TensorRT-8.4.1.5
+    ```
+
+    **Example: Windows on x86-64 with cuda-11.4**
+
+    ```powershell
+    cd ~\Downloads
+    Expand-Archive .\TensorRT-8.4.1.5.Windows10.x86_64.cuda-11.6.cudnn8.4.zip
+    $Env:TRT_LIBPATH = '$(Get-Location)\TensorRT-8.4.1.5'
+    $Env:PATH += 'C:\Program Files (x86)\Microsoft Visual Studio\2017\Professional\MSBuild\15.0\Bin\'
     ```
 
 
@@ -94,14 +93,14 @@ To build the TensorRT-OSS components, you will first need the following software
 
 ## Setting Up The Build Environment
 
-For Linux platforms, we recommend that you generate a docker container for building TensorRT OSS as described below. For native builds, please install the [prerequisite](#prerequisites) *System Packages*.
+For Linux platforms, we recommend that you generate a docker container for building TensorRT OSS as described below. For native builds, on Windows for example, please install the [prerequisite](#prerequisites) *System Packages*.
 
 1. #### Generate the TensorRT-OSS build container.
-    The TensorRT-OSS build container can be generated using the supplied Dockerfiles and build scripts. The build containers are configured for building TensorRT OSS out-of-the-box.
+    The TensorRT-OSS build container can be generated using the supplied Dockerfiles and build script. The build container is configured for building TensorRT OSS out-of-the-box.
 
-    **Example: Ubuntu 20.04 on x86-64 with cuda-11.8.0 (default)**
+    **Example: Ubuntu 20.04 on x86-64 with cuda-11.6.2 (default)**
     ```bash
-    ./docker/build.sh --file docker/ubuntu-20.04.Dockerfile --tag tensorrt-ubuntu20.04-cuda11.8
+    ./docker/build.sh --file docker/ubuntu-20.04.Dockerfile --tag tensorrt-ubuntu20.04-cuda11.6
     ```
     **Example: CentOS/RedHat 7 on x86-64 with cuda-10.2**
     ```bash
@@ -119,18 +118,18 @@ For Linux platforms, we recommend that you generate a docker container for build
 2. #### Launch the TensorRT-OSS build container.
     **Example: Ubuntu 20.04 build container**
 	```bash
-	./docker/launch.sh --tag tensorrt-ubuntu20.04-cuda11.8 --gpus all
+	./docker/launch.sh --tag tensorrt-ubuntu20.04-cuda11.6 --gpus all
 	```
 	> NOTE:
-  <br> 1. Use the `--tag` corresponding to build container generated in Step 1.
-  <br> 2. [NVIDIA Container Toolkit](#prerequisites) is required for GPU access (running TensorRT applications) inside the build container.
-  <br> 3. `sudo` password for Ubuntu build containers is 'nvidia'.
-  <br> 4. Specify port number using `--jupyter <port>` for launching Jupyter notebooks.
+	1. Use the `--tag` corresponding to build container generated in Step 1.
+	2. [NVIDIA Container Toolkit](#prerequisites) is required for GPU access (running TensorRT applications) inside the build container.
+	3. `sudo` password for Ubuntu build containers is 'nvidia'.
+	4. Specify port number using `--jupyter <port>` for launching Jupyter notebooks.
 
 ## Building TensorRT-OSS
-* Generate Makefiles and build.
+* Generate Makefiles or VS project (Windows) and build.
 
-    **Example: Linux (x86-64) build with default cuda-11.8.0**
+    **Example: Linux (x86-64) build with default cuda-11.6.2**
 	```bash
 	cd $TRT_OSSPATH
 	mkdir -p build && cd build
@@ -146,7 +145,7 @@ For Linux platforms, we recommend that you generate a docker container for build
     export PATH="/opt/rh/devtoolset-8/root/bin:${PATH}
     ```
 
-    **Example: Linux (aarch64) build with default cuda-11.8.0**
+    **Example: Linux (aarch64) build with default cuda-11.6.2**
 	```bash
 	cd $TRT_OSSPATH
 	mkdir -p build && cd build
@@ -164,25 +163,32 @@ For Linux platforms, we recommend that you generate a docker container for build
     > NOTE: C compiler must be explicitly specified via `CC=` for native `aarch64` builds of protobuf.
 
     **Example: Ubuntu 20.04 Cross-Compile for Jetson (aarch64) with cuda-11.4 (JetPack)**
-    ```bash
-    cd $TRT_OSSPATH
-    mkdir -p build && cd build
-    cmake .. -DCMAKE_TOOLCHAIN_FILE=$TRT_OSSPATH/cmake/toolchains/cmake_aarch64.toolchain -DCUDA_VERSION=11.4 -DCUDNN_LIB=/pdk_files/cudnn/usr/lib/aarch64-linux-gnu/libcudnn.so -DCUBLAS_LIB=/usr/local/cuda-11.4/targets/aarch64-linux/lib/stubs/libcublas.so -DCUBLASLT_LIB=/usr/local/cuda-11.4/targets/aarch64-linux/lib/stubs/libcublasLt.so -DTRT_LIB_DIR=/pdk_files/tensorrt/lib
+	```bash
+	cd $TRT_OSSPATH
+	mkdir -p build && cd build
+	cmake .. -DCMAKE_TOOLCHAIN_FILE=$TRT_OSSPATH/cmake/toolchains/cmake_aarch64.toolchain -DCUDA_VERSION=11.4 -DCUDNN_LIB=/pdk_files/cudnn/usr/lib/aarch64-linux-gnu/libcudnn.so -DCUBLAS_LIB=/usr/local/cuda-11.4/targets/aarch64-linux/lib/stubs/libcublas.so -DCUBLASLT_LIB=/usr/local/cuda-11.4/targets/aarch64-linux/lib/stubs/libcublasLt.so
 
-    make -j$(nproc)
-    ```
+	make -j$(nproc)
+	```
     > NOTE: The latest JetPack SDK v5.0 only supports TensorRT 8.4.0.
 
+    **Example: Windows (x86-64) build in Powershell**
+	```powershell
+	cd $Env:TRT_OSSPATH
+	mkdir -p build ; cd build
+	cmake .. -DTRT_LIB_DIR=$Env:TRT_LIBPATH -DTRT_OUT_DIR='$(Get-Location)\out' -DCMAKE_TOOLCHAIN_FILE=..\cmake\toolchains\cmake_x64_win.toolchain
+	msbuild ALL_BUILD.vcxproj
+	```
 	> NOTE:
-	<br> 1. The default CUDA version used by CMake is 11.8.0. To override this, for example to 10.2, append `-DCUDA_VERSION=10.2` to the cmake command.
-	<br> 2. If samples fail to link on CentOS7, create this symbolic link: `ln -s $TRT_OUT_DIR/libnvinfer_plugin.so $TRT_OUT_DIR/libnvinfer_plugin.so.8`
+	1. The default CUDA version used by CMake is 11.6.2. To override this, for example to 10.2, append `-DCUDA_VERSION=10.2` to the cmake command.
+	2. If samples fail to link on CentOS7, create this symbolic link: `ln -s $TRT_OUT_DIR/libnvinfer_plugin.so $TRT_OUT_DIR/libnvinfer_plugin.so.8`
 * Required CMake build arguments are:
 	- `TRT_LIB_DIR`: Path to the TensorRT installation directory containing libraries.
 	- `TRT_OUT_DIR`: Output directory where generated build artifacts will be copied.
 * Optional CMake build arguments:
 	- `CMAKE_BUILD_TYPE`: Specify if binaries generated are for release or debug (contain debug symbols). Values consists of [`Release`] | `Debug`
-	- `CUDA_VERISON`: The version of CUDA to target, for example [`11.7.1`].
-	- `CUDNN_VERSION`: The version of cuDNN to target, for example [`8.6`].
+	- `CUDA_VERISON`: The version of CUDA to target, for example [`11.6.2`].
+	- `CUDNN_VERSION`: The version of cuDNN to target, for example [`8.4`].
 	- `PROTOBUF_VERSION`:  The version of Protobuf to use, for example [`3.0.0`]. Note: Changing this will not configure CMake to use a system version of Protobuf, it will configure CMake to download and try building that version.
 	- `CMAKE_TOOLCHAIN_FILE`: The path to a toolchain file for cross compilation.
 	- `BUILD_PARSERS`: Specify if the parsers should be built, for example [`ON`] | `OFF`.  If turned OFF, CMake will try to find precompiled versions of the parser libraries to use in compiling samples. First in `${TRT_LIB_DIR}`, then on the system. If the build type is Debug, then it will prefer debug builds of the libraries before release versions if available.
@@ -209,4 +215,4 @@ For Linux platforms, we recommend that you generate a docker container for build
 
 ## Known Issues
 
-* Please refer to [TensorRT 8.5 Release Notes](https://docs.nvidia.com/deeplearning/tensorrt/release-notes/tensorrt-8.html#tensorrt-8)
+* Please refer to [TensorRT 8.4 Release Notes](https://docs.nvidia.com/deeplearning/tensorrt/release-notes/tensorrt-8.html#tensorrt-8)

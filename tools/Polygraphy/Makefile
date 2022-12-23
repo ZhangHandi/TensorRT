@@ -23,19 +23,18 @@ NPROC ?= 8
 BUILD_DIR := build
 TESTS_DIR := tests
 
-EXTRA_PYTEST_OPTS ?=
-PYTEST_OPTS := -v -x --durations=5 --failed-first --new-first --script-launch-mode=subprocess $(EXTRA_PYTEST_OPTS)
+PYTEST_OPTS := -v -x --durations=5 --failed-first --new-first --script-launch-mode=subprocess
 
 # Tests also check that docs can build
 test: docs install
-	export PYTHONPATH=$(CURDIR):$${PYTHONPATH}
+	export PYTHONPATH=$(CURDIR):$${PYTHON_PATH}
 	export POLYGRAPHY_INTERNAL_CORRECTNESS_CHECKS=1
     # Some tests need to be run serially - we annotate those with a `serial` marker.
 	python3 -m pytest $(TESTS_DIR) -m "serial" $(PYTEST_OPTS) && \
 		python3 -m pytest $(TESTS_DIR) -n $(NPROC) --dist=loadscope -m "not serial" $(PYTEST_OPTS)
 
 leak_check:
-	export PYTHONPATH=$(CURDIR):$${PYTHONPATH}
+	export PYTHONPATH=$(CURDIR):$${PYTHON_PATH}
 	export POLYGRAPHY_INTERNAL_CORRECTNESS_CHECKS=1
 	export PYTHONMALLOC=malloc
 	valgrind --leak-check=full python3 -m pytest $(TESTS_DIR) -v --durations=5 2>&1 | tee leak-check.log

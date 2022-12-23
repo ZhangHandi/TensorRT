@@ -155,20 +155,11 @@ def np_type_from_str(dt_str):
 
 
 @mod.export()
-def parse_tuple_list_with_default(arg_lst, cast_to=None, sep=None, allow_empty_key=None, treat_missing_sep_as_val=None):
+def parse_dict_with_default(arg_lst, cast_to=None, sep=None, allow_empty_key=None):
     """
-    Generate a list of (key, value) pairs from a list of arguments of the form:
-    ``<key><sep><val>``.
-
-    If the argument is missing a separator,
-
-    - If `treat_missing_sep_as_val` is True, then the argument is treated as a
-      value with empty key, i.e. it is parsed as ``<sep><val>``.
-    - If `treat_missing_sep_as_val` is False, then the argument is treated as a
-      key with empty value, i.e. it is parsed as ``<key><sep>``.
-
-    If `allow_empty_key` is False, then this function will log a critical error if
-    any empty keys are detected.
+    Generate a dictionary from a list of arguments of the form:
+    ``<key>:<val>``. If ``<key>`` is empty, the value will be assigned
+    to an empty string key in the returned mapping.
 
     Args:
         arg_lst (List[str]):
@@ -179,84 +170,31 @@ def parse_tuple_list_with_default(arg_lst, cast_to=None, sep=None, allow_empty_k
                 Defaults to `cast()`.
         sep (str):
                 The separator between the key and value strings.
-                Defaults to ":".
         allow_empty_key (bool):
                 Whether empty keys should be allowed.
-                Defaults to True.
-        treat_missing_sep_as_val (bool):
-                Whether the argument should be treated as a value with empty key
-                when separator is missing (see above).  Defaults to True.
     Returns:
-        Optional[List[Tuple[str, obj]]]:
-            The parsed list, or None if arg_lst is None (indicating the flag
-            was not specified).
+        Dict[str, obj]: The mapping.
     """
     sep = util.default(sep, ":")
     cast_to = util.default(cast_to, cast)
     allow_empty_key = util.default(allow_empty_key, True)
-    treat_missing_sep_as_val = util.default(treat_missing_sep_as_val, True)
 
     if arg_lst is None:
-        return None
+        return
 
-    ret = []
+    arg_map = {}
     for arg in arg_lst:
-        key, parsed_sep, val = arg.rpartition(sep)
-
-        if parsed_sep == '' and not treat_missing_sep_as_val:
-            key, val = val, key
-
+        key, _, val = arg.rpartition(sep)
         if not key and not allow_empty_key:
             G_LOGGER.critical(
                 f"Could not parse argument: {arg}. Expected an argument in the format: `key{sep}value`.\n"
             )
-        ret.append((key, cast_to(val)))
-    return ret
+        arg_map[key] = cast_to(val)
+    return arg_map
 
-@mod.export()
-def parse_dict_with_default(arg_lst, cast_to=None, sep=None, allow_empty_key=None, treat_missing_sep_as_val=None):
-    """
-    Generate a dict from a list of arguments of the form:
-    ``<key><sep><val>``.
-
-    If the argument is missing a separator,
-
-    - If `treat_missing_sep_as_val` is True, then the argument is treated as a
-      value with empty key, i.e. it is parsed as ``<sep><val>``.
-    - If `treat_missing_sep_as_val` is False, then the argument is treated as a
-      key with empty value, i.e. it is parsed as ``<key><sep>``.
-
-    If `allow_empty_key` is False, then this function will log a critical error if
-    any empty keys are detected.
-
-    Args:
-        arg_lst (List[str]):
-                The arguments to map.
-
-        cast_to (Callable):
-                A callable to cast types before adding them to the map.
-                Defaults to `cast()`.
-        sep (str):
-                The separator between the key and value strings.
-                Defaults to ":".
-        allow_empty_key (bool):
-                Whether empty keys should be allowed.
-                Defaults to True.
-        treat_missing_sep_as_val (bool):
-                Whether the argument should be treated as a value with empty key
-                when separator is missing (see above).  Defaults to True.
-    Returns:
-        Optional[Dict[str, obj]]:
-            The parsed key-value map, or None if arg_lst is None (indicating the flag
-            was not specified).
-    """
-    tuple_list = parse_tuple_list_with_default(arg_lst, cast_to, sep, allow_empty_key, treat_missing_sep_as_val)
-    if tuple_list is None:
-        return None
-    return dict(tuple_list)
 
 @mod.deprecate(
-    remove_in="0.45.0",
+    remove_in="0.42.0",
     use_instead=": as a separator and write shapes in the form [dim0,...,dimN]",
     name="Using , as a separator",
 )
@@ -355,8 +293,8 @@ def parse_meta_legacy(meta_args, includes_shape=True, includes_dtype=True):
         new_style.append(arg)
 
     G_LOGGER.warning(
-        "The old shape syntax is deprecated and will be removed in Polygraphy 0.45.0\n"
-        "See the CHANGELOG entry for v0.32.0 for the motivation behind this deprecation.",
+        "The old shape syntax is deprecated and will be removed in a future version of Polygraphy\n"
+        "See the CHANGELOG for the motivation behind this deprecation.",
         mode=LogMode.ONCE,
     )
     G_LOGGER.warning(f"Instead of: '{' '.join(meta_args)}', use: '{' '.join(new_style)}'\n")

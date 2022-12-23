@@ -20,15 +20,7 @@ import os
 import sys
 
 import numpy as np
-
-# Use autoprimaryctx if available (pycuda >= 2021.1) to
-# prevent issues with other modules that rely on the primary
-# device context.
-try:
-    import pycuda.autoprimaryctx
-except ModuleNotFoundError:
-    import pycuda.autoinit
-
+import pycuda.autoinit
 import tensorrt as trt
 from data_processing import get_inputs, preprocess
 

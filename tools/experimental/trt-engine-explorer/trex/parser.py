@@ -20,7 +20,6 @@ JSON file parsing
 """
 
 
-import re
 import json
 from typing import Dict, List, Tuple, BinaryIO
 
@@ -105,47 +104,7 @@ def get_builder_config(metadata_file:str) -> Dict:
         return {}
 
 
-def import_graph_file(graph_file: str, profile_id: int=None):
-    def filter_profiles(raw_layers: List[Dict], bindings: List[str], profile_id: int) -> List:
-        """Use layers from one shape profile.
-
-        A TRT engine may be built with one or more shape-profiles, and each of
-        the profiles will have its own engine graph. The layers of the different
-        profiles are distinguished from one another by the `[profile N]` suffix
-        appended to layer and binding names.
-        The first profile does not have this suffix.
-
-        When `profile_id` is None or zero we use only the layers of the first profile.
-        Otherwise we use only the layers from the requested profile.
-        """
-        def use_name(name: str) -> bool:
-            name_belongs_to_some_profile = re.search(r"\[profile +[0-9]\]", name)
-            if name_belongs_to_some_profile and not profile_id:
-                # We detected that the engine was built with several shape-profiles
-                # but we are not targeting any of them so move to the next layer.
-                # The first profile always exists and never has a profile id in the names.
-                return False
-            if profile_id:
-                # We detected that the engine was built with several shape-profiles
-                # and we are targeting a specific profile.
-                name_belongs_to_right_profile = re.search(rf"\[profile {profile_id}\]", name)
-                if not name_belongs_to_right_profile:
-                    return False
-            return True
-
-        filtered_raw_layers = []
-        for raw_layer in raw_layers:
-            name = raw_layer['Name']
-            if use_name(name):
-                filtered_raw_layers.append(raw_layer)
-        filtered_bindings = [binding for binding in bindings if use_name(binding)]
-        if not len(filtered_raw_layers) or not len(filtered_bindings):
-            raise ValueError(
-                f"Something went wrong went filtering layers from the provided "
-                f"profile ({profile_id}).\nMost likely the profile data does not "
-                "exist in the graph file so try without providing a profile id.")
-        return filtered_raw_layers, filtered_bindings
-
+def import_graph_file(graph_file: str):
     def disambiguate_layer_names(raw_layers: List) -> List:
         """If a layer name appears twice we need to disabmiguate it"""
         names_cnt = {}
@@ -175,5 +134,4 @@ def import_graph_file(graph_file: str, profile_id: int=None):
     raw_layers, bindings = read_graph_file(graph_file)
     raw_layers = convert_deconv(raw_layers)
     raw_layers = disambiguate_layer_names(raw_layers)
-    raw_layers, bindings = filter_profiles(raw_layers, bindings, profile_id)
     return raw_layers, bindings

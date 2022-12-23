@@ -32,7 +32,6 @@ from polygraphy.backend.onnx import (
     extract_subgraph,
     gs_from_onnx,
     infer_shapes,
-    fold_constants,
     onnx_from_path,
 )
 from polygraphy.common import TensorMetadata
@@ -46,7 +45,7 @@ import onnx
 class TestLoggerCallbacks:
     @pytest.mark.parametrize("sev", G_LOGGER.SEVERITY_LETTER_MAPPING.keys())
     def test_set_severity(self, sev):
-        G_LOGGER.module_severity = sev
+        G_LOGGER.severity = sev
 
 
 class TestOnnxFromPath:
@@ -60,14 +59,6 @@ class TestOnnxFromPath:
         model = ONNX_MODELS["ext_weights"]
         loader = OnnxFromPath(model.path, model.ext_data)
         assert isinstance(loader(), onnx.ModelProto)
-
-    def test_ignore_external_data(self):
-        model = ONNX_MODELS["ext_weights"]
-        loader = OnnxFromPath(model.path, ignore_external_data=True)
-        onnx_model = loader()
-
-        assert isinstance(onnx_model, onnx.ModelProto)
-        assert all(init.data_location == 1 for init in onnx_model.graph.initializer)
 
 
 class TestOnnxFromBytes:
@@ -88,7 +79,7 @@ class TestExportOnnxFromTf:
     pytest.importorskip("tensorflow")
 
     def test_no_optimize(self):
-        loader = OnnxFromTfGraph(TF_MODELS["identity"].loader, optimize=False)
+        loader = OnnxFromTfGraph(TF_MODELS["identity"].loader, optimize=False, fold_constant=False)
         model = loader()
 
     def test_opset(self):
@@ -124,7 +115,6 @@ class TestModifyOnnx:
         assert model.graph.output[0].name == "identity_out_0"
 
 
-@pytest.mark.parametrize("allow_onnxruntime", [True, False])
 class TestInferShapes:
     def check_model(self, model):
         # Find all intermediate tensors to check if they have shapes.
@@ -133,32 +123,28 @@ class TestInferShapes:
             tensors.update(node.output)
         tensors -= {out.name for out in model.graph.output}
 
-        assert len(model.graph.value_info) >= len(tensors)
+        assert len(model.graph.value_info) == len(tensors)
         for val in model.graph.value_info:
             assert val.type.tensor_type.HasField("shape")
 
-    def test_model(self, allow_onnxruntime):
+    def test_model(self):
         original_model = onnx_from_path(ONNX_MODELS["identity_identity"].path)
-        model = infer_shapes(original_model, allow_onnxruntime=allow_onnxruntime)
+        model = infer_shapes(original_model)
         self.check_model(model)
 
-    def test_path(self, allow_onnxruntime):
-        model = infer_shapes(ONNX_MODELS["identity_identity"].path, allow_onnxruntime=allow_onnxruntime)
+    def test_path(self):
+        model = infer_shapes(ONNX_MODELS["identity_identity"].path)
         self.check_model(model)
 
     @pytest.mark.parametrize("set_data_dir", [True, False])
-    def test_external_data(self, set_data_dir, allow_onnxruntime):
+    def test_external_data(self, set_data_dir):
         model = ONNX_MODELS["ext_weights_same_dir"]
-        model = infer_shapes(
-            model.path,
-            external_data_dir=model.ext_data if set_data_dir else None,
-            allow_onnxruntime=allow_onnxruntime,
-        )
+        model = infer_shapes(model.path, external_data_dir=model.ext_data if set_data_dir else None)
         self.check_model(model)
 
-    def test_save_to_disk_on_size_threshold(self, allow_onnxruntime):
+    def test_save_to_disk_on_size_threshold(self):
         model = onnx_from_path(ONNX_MODELS["const_foldable"].path)
-        model = infer_shapes(model, save_to_disk_threshold_bytes=0, allow_onnxruntime=allow_onnxruntime)
+        model = infer_shapes(model, save_to_disk_threshold_bytes=0)
         self.check_model(model)
 
 
@@ -170,51 +156,21 @@ class TestConvertToFp16:
         model = loader()
 
         assert original_model.graph.input[0].type.tensor_type.elem_type == 1 or not copy
-        assert model.graph.input[0].type.tensor_type.elem_type == 1
-        assert model.graph.node[2].op_type == "Cast"
-        assert model.graph.node[0].op_type == "Identity"
-        assert model.graph.node[1].op_type == "Identity"
-        assert model.graph.node[3].op_type == "Cast"
-        assert model.graph.output[0].type.tensor_type.elem_type == 1
+        assert model.graph.input[0].type.tensor_type.elem_type == 10
 
 
 class TestFoldConstants:
     @pytest.mark.parametrize("fold_shapes", [True, False])
     @pytest.mark.parametrize("partitioning", [None, "basic", "recursive"])
     @pytest.mark.parametrize("copy", [True, False])
-    @pytest.mark.parametrize("allow_onnxruntime_shape_inference", [True, False])
-    def test_basic(self, partitioning, fold_shapes, copy, allow_onnxruntime_shape_inference):
+    def test_basic(self, partitioning, fold_shapes, copy):
         original_model = onnx_from_path(ONNX_MODELS["const_foldable"].path)
         loader = FoldConstants(
-            original_model,
-            partitioning=partitioning,
-            fold_shapes=fold_shapes,
-            copy=copy,
-            error_ok=False,
-            allow_onnxruntime_shape_inference=allow_onnxruntime_shape_inference,
+            original_model, partitioning=partitioning, fold_shapes=fold_shapes, copy=copy, error_ok=False
         )
         model = loader()
         assert len(original_model.graph.node) != 1 or not copy
         assert len(model.graph.node) == 1
-
-    @pytest.mark.parametrize(
-        "size_threshold, expect_folding",
-        [
-            (None, True),
-            (0, False),
-            (10 << 20, True),
-            (10 << 20 - 1, False),
-        ],
-    )
-    def test_size_threshold(self, size_threshold, expect_folding):
-        model = onnx_from_path(ONNX_MODELS["constant_fold_bloater"].path)
-        model = fold_constants(model, size_threshold=size_threshold)
-
-        if expect_folding:
-            assert len(model.graph.node) == 0
-        else:
-            assert len(model.graph.node) == 1
-            assert model.graph.node[0].op_type == "Tile"
 
 
 class TestSaveOnnx:

@@ -17,12 +17,12 @@
 
 import numbers
 
-from polygraphy import constants, mod, util
+from polygraphy import mod, util
 from polygraphy.logger import G_LOGGER
 from polygraphy.tools.args import util as args_util
 from polygraphy.tools.args.base import BaseArgs
 from polygraphy.tools.args.model import ModelArgs
-from polygraphy.tools.script import Script, inline, make_invocable, make_invocable_if_nondefault, safe
+from polygraphy.tools.script import Script, make_invocable, make_invocable_if_nondefault, safe
 
 
 @mod.export()
@@ -94,7 +94,7 @@ class DataLoaderArgs(BaseArgs):
         custom_loader_group.add_argument(
             "--load-inputs",
             "--load-input-data",
-            help="Path(s) to load inputs. The file(s) should be a JSON-ified "
+            help="[EXPERIMENTAL] Path(s) to load inputs. The file(s) should be a JSON-ified "
             "List[Dict[str, numpy.ndarray]], i.e. a list where each element is the feed_dict for a single iteration. "
             "When this option is used, all other data loader arguments are ignored. ",
             default=[],
@@ -151,14 +151,12 @@ class DataLoaderArgs(BaseArgs):
             for name, vals in self.val_range.items():
                 if len(vals) != 2:
                     G_LOGGER.critical(
-                        f"In --val-range, for input: {name}, expected to receive exactly 2 values, "
-                        f"but received {len(vals)}.\nNote: Option was parsed as: input: {name}, range: {vals}"
+                        f"In --val-range, for input: {name}, expected to receive exactly 2 values, but received {len(vals)}.\nNote: Option was parsed as: input: {name}, range: {vals}"
                     )
 
                 if any(not isinstance(elem, numbers.Number) for elem in vals):
                     G_LOGGER.critical(
-                        f"In --val-range, for input: {name}, one or more elements of the range could not be parsed as a number.\n"
-                        f"Note: Option was parsed as: input: {name}, range: {vals}"
+                        f"In --val-range, for input: {name}, one or more elements of the range could not be parsed as a number.\nNote: Option was parsed as: input: {name}, range: {vals}"
                     )
 
         self.iterations = args_util.get(args, "iterations")
@@ -172,7 +170,7 @@ class DataLoaderArgs(BaseArgs):
                 val = args_util.get(args, arg)
                 if val is not None:
                     G_LOGGER.warning(
-                        f"Argument: '--{arg.replace('_', '-')}' will be ignored since a custom data loader was provided.\n"
+                        f"Argument: '--{arg.replace('_', '-')} {val}' will be ignored since a custom data loader was provided.\n"
                         "This argument is only valid when using the default data loader."
                     )
 
@@ -190,10 +188,9 @@ class DataLoaderArgs(BaseArgs):
             script.add_import(imports=["load_json"], frm="polygraphy.json")
             data_loader = safe(
                 "[]\nfor input_data_path in {load_inputs_paths}:"
-                "\n{tab}{data_loader}.extend(load_json(input_data_path, description='input data'))",
+                "\n\t{data_loader}.extend(load_json(input_data_path, description='input data'))",
                 load_inputs_paths=self.load_inputs_paths,
                 data_loader=Script.DATA_LOADER_NAME,
-                tab=inline(safe(constants.TAB)),
             )
         else:
             using_random_data = True

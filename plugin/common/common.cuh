@@ -118,17 +118,6 @@ __device__ inline T operator-(const T& a, const T& b);
 template <typename T>
 __device__ inline T operator*(const T& a, const T& b);
 
-template <typename T>
-__device__ inline bool operator>(const T& a, const T& b);
-
-template <typename T>
-__device__ inline bool operator>=(const T& a, const T& b);
-
-template <typename T>
-__device__ inline bool operator<(const T& a, const T& b);
-
-template <typename T>
-__device__ inline bool operator<=(const T& a, const T& b);
 
 template <>
 __device__ inline half operator+(const half& a, const half& b)
@@ -159,30 +148,6 @@ template <>
 __device__ inline half operator/(const half& a, const half& b)
 {
     return __float2half(__half2float(a) / __half2float(b));
-}
-
-template <>
-__device__ inline bool operator>(const half& a, const half& b)
-{
-    return __half2float(a) > __half2float(b);
-}
-
-template <>
-__device__ inline bool operator>=(const half& a, const half& b)
-{
-    return __half2float(a) >= __half2float(b);
-}
-
-template <>
-__device__ inline bool operator<(const half& a, const half& b)
-{
-    return __half2float(a) < __half2float(b);
-}
-
-template <>
-__device__ inline bool operator<=(const half& a, const half& b)
-{
-    return __half2float(a) <= __half2float(b);
 }
 
 #endif

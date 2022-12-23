@@ -182,8 +182,7 @@ class DataLoader:
             if is_shape_tensor(name, dtype):
                 buffer = np.array(shape, dtype=dtype)
                 G_LOGGER.info(
-                    f"Assuming {name} is a shape tensor. Setting input values to: {buffer}. "
-                    "If these values are not correct, please set it correctly in 'input_metadata' or by providing --input-shapes",
+                    f"Assuming {name} is a shape tensor. Setting input values to: {buffer}. If this is not correct, please set it correctly in 'input_metadata' or by providing --input-shapes",
                     mode=LogMode.ONCE,
                 )
             elif np.issubdtype(dtype, np.integer) or np.issubdtype(dtype, np.bool_):
@@ -200,19 +199,7 @@ class DataLoader:
                     f"Input tensor: {name} | Generating input data in range: [{fmin}, {fmax}]",
                     mode=LogMode.ONCE,
                 )
-
-                # Special handling for infinite lower/upper bounds
-                # Without this, two inifinities will collapse into a NaN, resulting in no inifinities
-                # in the final output.
-                scale = fmax - fmin
-                shift = fmin
-                if util.is_inf(fmin):
-                    scale = fmin
-                    shift = 0
-                if util.is_inf(fmax):
-                    scale = fmax
-
-                buffer = (rng.random_sample(size=shape) * scale + shift).astype(dtype)
+                buffer = (rng.random_sample(size=shape) * (fmax - fmin) + fmin).astype(dtype)
 
             buffer = np.array(buffer)  # To handle scalars, since the above functions return a float if shape is ().
             return buffer
@@ -254,12 +241,8 @@ class DataLoader:
 
         # Warn about unused val_range
         if not isinstance(self.val_range, tuple):
-            util.check_sequence_contains(
-                self.val_range.keys(),
-                list(self.input_metadata.keys()) + [""],
-                name="val_range",
-                log_func=G_LOGGER.warning,
-                check_missing=False,
+            util.check_dict_contains(
+                self.val_range, list(self.input_metadata.keys()) + [""], check_missing=False, dict_name="val_range"
             )
 
         return buffers
@@ -367,26 +350,8 @@ class DataLoaderCache:
         if not self.cache:
             G_LOGGER.verbose("Loading inputs from data loader")
             self.cache = list(self.data_loader)
-
-            def _is_feed_dict(inp):
-                try:
-                    for name, arr in inp.items():
-                        if not isinstance(name, str) or not isinstance(arr, np.ndarray):
-                            return False
-                except:
-                    return False
-                else:
-                    return True
-
             if not self.cache:
                 G_LOGGER.warning("Data loader did not yield any input data.")
-            elif not _is_feed_dict(self.cache[0]):
-                G_LOGGER.critical(
-                    f"Data loader returned an object that cannot be recognized as a feed_dict (Dict[str, np.ndarray]):"
-                    f"\nNote: The object was:\n{self.cache[0]}.\n"
-                    f"\nHint: If this is a `RunReults` object (e.g. generated with `--save-outputs`), try using the "
-                    f"`data to-input` tool to convert it to a feed_dict compatible format. "
-                )
 
             # Only save inputs the first time the cache is generated
             if self.save_inputs_path is not None:

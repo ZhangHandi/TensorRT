@@ -27,7 +27,6 @@ try:
     import tensorflow.compat.v1 as tf
     tf.disable_v2_behavior()
 except ImportError as err:
-    import sys
     sys.stderr.write("""Error: Failed to import tensorflow module ({})\n""".format(err))
     sys.exit()
 

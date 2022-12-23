@@ -20,32 +20,7 @@ Uses [semantic versioning](https://semver.org/).
 - `Fixed` for any bug fixes.
 - `Security` in case of vulnerabilities.
 
-# [1.3.2] - 2022-11-17
-- Added beam search support for GPT2 demo
-- Added KV cache support for GPT2 demo
-- Fixed perplexity calculation array size out of max_length
-- Fixed trt KV cache engine profile to only accept input_length = 1
-
-# [1.3.1] - 2022-11-04
-- Added beam search support for T5 demo
-- Added KV cache support for T5 demo
-
-# [1.3.0] - 2022-11-03
-- Added perplexity calculation for all samples
-- Added precision override to checkpoints.
-- Fixed TensorRT BART checkpoint not working.
-
-# [1.2.5] - 2022-10-08
-- Added beam search support for BART
-
-# [1.2.4] - 2022-09-30
-- Added notebooks for BART demo
-- Enabled flexible control on (a) percentile latency reports (b) engine building profile other than standard maximum input/output length config
-
-# [1.2.3] - 2022-06-30
-- Added KV cache support for BART demo
-
-# [1.2.2] - 2022-06-14
+# [1.2.?] - 2022-06-?
 - Added BART demo
 
 # [1.2.1] - 2022-05-20

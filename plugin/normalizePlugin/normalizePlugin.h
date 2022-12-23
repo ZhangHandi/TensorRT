@@ -31,10 +31,10 @@ namespace plugin
 class Normalize : public IPluginV2Ext
 {
 public:
-    Normalize(Weights const* weights, int nbWeights, bool acrossSpatial, bool channelShared, float eps);
+    Normalize(const Weights* weights, int nbWeights, bool acrossSpatial, bool channelShared, float eps);
 
     Normalize(
-        Weights const* weights, int nbWeights, float scalarScale, bool acrossSpatial, bool channelShared, float eps, int C, int H, int W);
+        const Weights* weights, int nbWeights, bool acrossSpatial, bool channelShared, float eps, int C, int H, int W);
 
     Normalize(const void* buffer, size_t length);
 
@@ -93,9 +93,8 @@ private:
 
     cublasHandle_t mCublas;
 
-    Weights mWeights{}; // mWeights.values is on the device
+    Weights mWeights{};
     int mNbWeights{};
-    float mScalarScale{}; // keep track of scale on the host (for when channelShared is true)
     bool acrossSpatial{};
     bool channelShared{};
     float eps{};

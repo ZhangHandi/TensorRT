@@ -22,6 +22,7 @@
 #include <cuda.h>
 #include <type_traits>
 #include <vector>
+#include <stdio.h>
 
 using namespace nvinfer1;
 
@@ -247,7 +248,7 @@ int32_t launch_large_hface(cudaStream_t stream, const int32_t ld, const int32_t 
 
 // naive kernel that only changes the addressing seems to be faster for small problem sizes
 template <int32_t TPB, int32_t VPT>
-__global__ void skiplnDQQ_vec3(const int32_t ld, const int8_t* input, const int8_t* skip, int8_t* output,
+__global__ void skiplnDQQ_vec3(const int32_t ld, const half* input, const int8_t* skip, int8_t* output,
     const half* beta, const half* gamma, const float dqScaleIn, const float dqScaleSkip, const float qScale,
     const int32_t total)
 {
@@ -258,7 +259,7 @@ __global__ void skiplnDQQ_vec3(const int32_t ld, const int8_t* input, const int8
     const int32_t bidx = blockIdx.x;
     const int32_t idx = houter * total * 32 + bidx * 32 + hinner * VPT;
     // 4 * 1024 * 4 * 2 Bytes = 16KB per block
-    int8_t in_local[VPT];
+    half in_local[VPT];
     int8_t skip_local[VPT];
 
     half in_local_dq[VPT]; // dequantized input + skip 
@@ -266,7 +267,8 @@ __global__ void skiplnDQQ_vec3(const int32_t ld, const int8_t* input, const int8
     half gamma_local[VPT];
 
     // load input tensors
-    copy<sizeof(int8_t) * VPT>(&input[idx], in_local);
+    copy<sizeof(half) * VPT>(&input[idx], in_local);
+    
     copy<sizeof(int8_t) * VPT>(&skip[idx], skip_local);
 
     // load parameters
@@ -281,9 +283,11 @@ __global__ void skiplnDQQ_vec3(const int32_t ld, const int8_t* input, const int8
     {
         // DQ input and skip
         const float tmp_in = in_local[it];
+        //printf("in local: %d\n", tmp_in);
         const float tmp_skip = skip_local[it];
-        in_local_dq[it] = dqScaleIn * tmp_in + dqScaleSkip * tmp_skip;
-
+        //printf("skip local: %d\n", tmp_skip);
+        //in_local_dq[it] = dqScaleIn * tmp_in + dqScaleSkip * tmp_skip;
+        in_local_dq[it] = tmp_in + dqScaleSkip * tmp_skip;
         const half tmp = rld * in_local_dq[it];
         const half2 tmp2 = __halves2half2(tmp, tmp * in_local_dq[it]);
         stats_local = stats_local + tmp2;
@@ -320,7 +324,81 @@ __global__ void skiplnDQQ_vec3(const int32_t ld, const int8_t* input, const int8
 
 }
 
-int launch_small_hface(cudaStream_t stream, const int32_t ld, const int32_t total, const int8_t* input,
+template <int32_t TPB, int32_t VPT>
+__global__ void skiplnDQQ_vec3_output_half(const int32_t ld, const half* input, const int8_t* skip, half* output, const half* beta, const half* gamma, const float dqScaleIn, const float dqScaleSkip, const int32_t total)
+{
+    //const int32_t hinner = threadIdx.x % 4;
+    //const int32_t houter = threadIdx.x / 4;
+    const int32_t hinner = threadIdx.x % 2;
+    const int32_t houter = threadIdx.x / 2;
+   
+    const int32_t tidx = threadIdx.x;
+    const int32_t bidx = blockIdx.x;
+    const int32_t idx = houter * total * 32 + bidx * 32 + hinner * VPT;
+    // 4 * 1024 * 4 * 2 Bytes = 16KB per block
+    half in_local[VPT];
+    int8_t skip_local[VPT];
+    half in_local_dq[VPT]; // dequantized input + skip
+    half beta_local[VPT];
+    half gamma_local[VPT];
+
+    // load input tensors
+    copy<sizeof(half) * VPT>(&input[idx], in_local);
+    copy<sizeof(int8_t) * VPT>(&skip[idx], skip_local);
+    
+    // load parameters
+    copy<sizeof(half) * VPT>(&beta[tidx * VPT], beta_local);
+    copy<sizeof(half) * VPT>(&gamma[tidx * VPT], gamma_local);
+
+    half2 stats_local = __floats2half2_rn(0.f, 0.f); // accumulator
+
+    const half rld = half(1.f) / half(ld);
+#pragma unroll
+    for (int32_t it = 0; it < VPT; it++)
+    {
+        // DQ input and skip
+        const float tmp_in = in_local[it];
+        const float tmp_skip = skip_local[it];
+        in_local_dq[it] = tmp_in + dqScaleSkip * tmp_skip;
+        const half tmp = rld * in_local_dq[it];
+        const half2 tmp2 = __halves2half2(tmp, tmp * in_local_dq[it]);
+        stats_local = stats_local + tmp2;   
+    }
+
+    using BlockReduce = cub::BlockReduce<half2, TPB>;
+    __shared__ typename BlockReduce::TempStorage temp_storage;
+    __shared__ half mu;     // mean
+    __shared__ half rsigma; // 1 / std.dev.
+
+    const half2 sum2 = BlockReduce(temp_storage).Reduce(stats_local, cub::Sum());
+
+    if (tidx == 0)
+    {
+        mu = __low2half(sum2);
+        rsigma = rsqrtf(__high2half(sum2) - mu * mu);
+    }
+
+     __syncthreads();
+
+     //static_assert(VPT % 4 == 0, "");
+     //half out_local[VPT/4];
+     static_assert(VPT % 2 == 0, "");
+     half2 out_local[VPT / 2];
+#pragma unroll
+     for (int it = 0; it < VPT; it++)
+     {
+         const float tmp0 = gamma_local[it*2+0] * (in_local_dq[it*2+0] - mu) * rsigma + beta_local[it*2+0];
+         const float tmp1 = gamma_local[it*2+1] * (in_local_dq[it*2+1] - mu) * rsigma + beta_local[it*2+1];
+         __half2 all_tmp = __floats2half2_rn(tmp0, tmp1);
+         //__half all_tmp = __float2half(tmp0);
+         
+         out_local[it] = reinterpret_cast<const half2&>(all_tmp);
+     }
+     
+     copy<sizeof(half) * VPT>(out_local, &output[idx]);
+}
+
+int launch_small_hface(cudaStream_t stream, const int32_t ld, const int32_t total, const half* input,
     const int8_t* skip, const half* beta, const half* gamma, int8_t* output, const float dqScaleIn,
     const float dqScaleSkip, const float qScale)
 {
@@ -347,5 +425,31 @@ int launch_small_hface(cudaStream_t stream, const int32_t ld, const int32_t tota
     return cudaPeekAtLastError();
 }
 
-} // namespace bert
+int launch_small_hface_output_half(cudaStream_t stream, const int32_t ld, const int32_t total, const half* input,
+    const int8_t* skip, const half* beta, const half* gamma, half* output, const float dqScaleIn,
+    const float dqScaleSkip)
+{
+    const int32_t gridSize = total;
+    // we align reads with the number of parameters, i.e. 8-wide instead of 16
+    constexpr int32_t VPT = 16 / sizeof(half); // 8
+    if (ld == 768)
+    {
+        constexpr int32_t TPB = 768 / VPT;
+        skiplnDQQ_vec3_output_half<TPB, VPT>
+            <<<gridSize, TPB, 0, stream>>>(ld, input, skip, output, beta, gamma, dqScaleIn, dqScaleSkip, total);
+    }
+    else if (ld == 1024)
+    {
+        constexpr int32_t TPB = 1024 / VPT; // 128
+        skiplnDQQ_vec3_output_half<TPB, VPT>
+            <<<gridSize, TPB, 0, stream>>>(ld, input, skip, output, beta, gamma, dqScaleIn, dqScaleSkip, total);
+    }
+    else 
+    {
+        std::cout << "SkipLayerNormDQQOutputHalf - FATAL: unsupported hidden layer size: " << ld << std::endl;
+        return STATUS_FAILURE;
+    }
+    return cudaPeekAtLastError();
+}
 
+} // namespace bert

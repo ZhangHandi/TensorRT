@@ -16,8 +16,8 @@
 # limitations under the License.
 #
 
-import onnx
 import torch
+import onnx
 import numpy as np
 import argparse
 import onnx_graphsurgeon as gs

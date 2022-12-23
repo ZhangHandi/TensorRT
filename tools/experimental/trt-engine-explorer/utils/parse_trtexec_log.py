@@ -25,7 +25,7 @@ import json
 from pickle import BUILD
 import re
 from typing import Tuple, List, Dict, Any
-from enum import Enum
+from enum import Enum, unique
 
 
 def __to_float(line: str) -> float:
@@ -76,8 +76,6 @@ class FileSection:
         k,v = parse_kv_line(line)
         if k is not None and v is not None:
             self.dict[k] = v
-            return True
-        if k is not None:
             return True
         return False
 

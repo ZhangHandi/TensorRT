@@ -14,13 +14,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-from polygraphy import constants
-from polygraphy.tools.args import DataLoaderArgs, ModelArgs, TrtConfigArgs
+import argparse
+
+from polygraphy.tools.args import (
+    ModelArgs,
+    DataLoaderArgs,
+    TrtConfigArgs,
+)
+from polygraphy.tools.base import Tool
 from polygraphy.tools.script import Script, inline, safe
-from polygraphy.tools.template.subtool.base import BaseTemplateTool
 
 
-class TrtConfig(BaseTemplateTool):
+class TrtConfig(Tool):
     """
     Generate a template script to create a TensorRT builder configuration.
     """
@@ -28,7 +33,7 @@ class TrtConfig(BaseTemplateTool):
     def __init__(self):
         super().__init__("trt-config")
 
-    def get_subscriptions_impl(self):
+    def get_subscriptions(self):
         return [
             ModelArgs(model_opt_required=False),
             # For INT8 calibration
@@ -36,23 +41,26 @@ class TrtConfig(BaseTemplateTool):
             TrtConfigArgs(),
         ]
 
-    def run_impl(self, args):
+    def add_parser_args(self, parser):
+        parser.add_argument(
+            "-o", "--output", help="Path to save the generated script.", type=argparse.FileType("w"), required=True
+        )
+
+    def run(self, args):
         script = Script(summary="Creates a TensorRT Builder Configuration.", always_create_runners=False)
         script.add_import(imports=["func"], frm="polygraphy")
-        script.add_import(imports="tensorrt", imp_as="trt")
+        script.add_import(imports=["tensorrt as trt"])
 
         loader_name = self.arg_groups[TrtConfigArgs].add_to_script(script)
         if not loader_name:
             script.add_import(imports=["CreateConfig"], frm="polygraphy.backend.trt")
             loader_name = script.add_loader(safe("CreateConfig()"), "create_trt_config")
-        params = safe("builder, network, config")
+        params = safe("config")
 
         script.append_suffix(safe("@func.extend({:})", inline(loader_name)))
         script.append_suffix(safe("def load_config({:}):", inline(params)))
         script.append_suffix(
-            safe(
-                f"{constants.TAB}pass # TODO: Set up the builder configuration here. This function should not return anything."
-            )
+            safe("\tpass # TODO: Set up the builder configuration here. This function should not return anything.")
         )
 
         script.save(args.output)

@@ -13,6 +13,4 @@ versions:
       stride:
         min: "0"
         max: "=pinf"
-    attributes_required:
-      - stride
 ...

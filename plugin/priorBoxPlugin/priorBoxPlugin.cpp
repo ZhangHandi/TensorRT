@@ -24,7 +24,6 @@
 #include <vector>
 
 using namespace nvinfer1;
-using namespace nvinfer1::plugin;
 using nvinfer1::plugin::PriorBox;
 using nvinfer1::plugin::PriorBoxPluginCreator;
 
@@ -72,7 +71,7 @@ void PriorBox::setupDeviceMemory() noexcept
         return Weights{DataType::kFLOAT, deviceData, int64_t(count)};
     };
 
-    // minSize is required and needs to be positive.
+    // minSize is required and needs to be non-negative
     PLUGIN_ASSERT(mParam.numMinSize > 0 && mParam.minSize != nullptr);
     for (auto i = 0; i < mParam.numMinSize; ++i)
     {
@@ -124,11 +123,10 @@ void PriorBox::setupDeviceMemory() noexcept
      */
     if (mParam.numMaxSize > 0)
     {
-        PLUGIN_ASSERT(mParam.numMinSize == mParam.numMaxSize && mParam.maxSize != nullptr && mParam.minSize != nullptr);
+        PLUGIN_ASSERT(mParam.numMinSize == mParam.numMaxSize && mParam.maxSize != nullptr);
         for (auto i = 0; i < mParam.numMaxSize; ++i)
         {
             // maxSize should be greater than minSize
-            // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
             PLUGIN_ASSERT(mParam.maxSize[i] > mParam.minSize[i] && "maxSize must be greater than minSize");
             mNumPriors++;
         }

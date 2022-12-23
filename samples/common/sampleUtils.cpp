@@ -31,10 +31,14 @@ size_t dataTypeSize(nvinfer1::DataType dataType)
     case nvinfer1::DataType::kFLOAT: return 4U;
     case nvinfer1::DataType::kHALF: return 2U;
     case nvinfer1::DataType::kBOOL:
-    case nvinfer1::DataType::kUINT8:
     case nvinfer1::DataType::kINT8: return 1U;
     }
     return 0;
+}
+
+int64_t volume(nvinfer1::Dims const& d)
+{
+    return std::accumulate(d.d, d.d + d.nbDims, 1, std::multiplies<int64_t>());
 }
 
 int64_t volume(nvinfer1::Dims const& dims, nvinfer1::Dims const& strides, int32_t vecDim, int32_t comps, int32_t batch)
@@ -58,6 +62,15 @@ int64_t volume(nvinfer1::Dims const& dims, nvinfer1::Dims const& strides, int32_
     return static_cast<int64_t>(maxNbElems) * batch * (vecDim < 0 ? 1 : comps);
 }
 
+int64_t volume(nvinfer1::Dims dims, int32_t vecDim, int32_t comps, int32_t batch)
+{
+    if (vecDim != -1)
+    {
+        dims.d[vecDim] = roundUp(dims.d[vecDim], comps);
+    }
+    return volume(dims) * std::max(batch, 1);
+}
+
 nvinfer1::Dims toDims(std::vector<int32_t> const& vec)
 {
     int32_t limit = static_cast<int32_t>(nvinfer1::Dims::MAX_DIMS);
@@ -79,40 +92,14 @@ void loadFromFile(std::string const& fileName, char* dst, size_t size)
     if (file.is_open())
     {
         file.read(dst, size);
-        size_t const nbBytesRead = file.gcount();
         file.close();
-        if (nbBytesRead != size)
-        {
-            std::ostringstream msg;
-            msg << "Unexpected file size for input file: " << fileName << ". Note: Expected: " << size
-                << " bytes but only read: " << nbBytesRead << " bytes";
-            throw std::invalid_argument(msg.str());
-        }
     }
     else
     {
-        std::ostringstream msg;
+        std::stringstream msg;
         msg << "Cannot open file " << fileName << "!";
         throw std::invalid_argument(msg.str());
     }
-}
-
-std::vector<std::string> splitToStringVec(std::string const& s, char separator)
-{
-    std::vector<std::string> splitted;
-
-    for (size_t start = 0; start < s.length();)
-    {
-        size_t separatorIndex = s.find(separator, start);
-        if (separatorIndex == std::string::npos)
-        {
-            separatorIndex = s.length();
-        }
-        splitted.emplace_back(s.substr(start, separatorIndex - start));
-        start = separatorIndex + 1;
-    }
-
-    return splitted;
 }
 
 bool broadcastIOFormats(std::vector<IOFormat> const& formats, size_t nbBindings, bool isInput /*= true*/)
@@ -313,19 +300,19 @@ void sparsifyMatMulKernelWeights(nvinfer1::INetworkDefinition& network, std::vec
 }
 
 template <typename L>
-void setSparseWeights(L& l, int32_t k, int32_t trs, std::vector<int8_t>& sparseWeights)
+void setSparseWeights(L& l, int32_t k, int32_t rs, std::vector<int8_t>& sparseWeights)
 {
     auto weights = l.getKernelWeights();
-    sparsify(weights, k, trs, sparseWeights);
+    sparsify(weights, k, rs, sparseWeights);
     weights.values = sparseWeights.data();
     l.setKernelWeights(weights);
 }
 
 // Explicit instantiation
 template void setSparseWeights<IConvolutionLayer>(
-    IConvolutionLayer& l, int32_t k, int32_t trs, std::vector<int8_t>& sparseWeights);
+    IConvolutionLayer& l, int32_t k, int32_t rs, std::vector<int8_t>& sparseWeights);
 template void setSparseWeights<IFullyConnectedLayer>(
-    IFullyConnectedLayer& l, int32_t k, int32_t trs, std::vector<int8_t>& sparseWeights);
+    IFullyConnectedLayer& l, int32_t k, int32_t rs, std::vector<int8_t>& sparseWeights);
 
 void sparsify(nvinfer1::INetworkDefinition& network, std::vector<std::vector<int8_t>>& sparseWeights)
 {
@@ -337,11 +324,14 @@ void sparsify(nvinfer1::INetworkDefinition& network, std::vector<std::vector<int
         {
             auto& conv = *static_cast<IConvolutionLayer*>(layer);
             auto const& dims = conv.getKernelSizeNd();
-            ASSERT(dims.nbDims == 2 || dims.nbDims == 3);
+            if (dims.nbDims > 2)
+            {
+                continue;
+            }
             auto const k = conv.getNbOutputMaps();
-            auto const trs = std::accumulate(dims.d, dims.d + dims.nbDims, 1, std::multiplies<int32_t>());
+            auto const rs = dims.d[0] * dims.d[1];
             sparseWeights.emplace_back();
-            setSparseWeights(conv, k, trs, sparseWeights.back());
+            setSparseWeights(conv, k, rs, sparseWeights.back());
         }
         else if (t == nvinfer1::LayerType::kFULLY_CONNECTED)
         {
@@ -355,42 +345,30 @@ void sparsify(nvinfer1::INetworkDefinition& network, std::vector<std::vector<int
     sparsifyMatMulKernelWeights(network, sparseWeights);
 }
 
-void sparsify(Weights const& weights, int32_t k, int32_t trs, std::vector<int8_t>& sparseWeights)
+void sparsify(Weights const& weights, int32_t k, int32_t rs, std::vector<int8_t>& sparseWeights)
 {
     switch (weights.type)
     {
     case DataType::kFLOAT:
-        sparsify(static_cast<float const*>(weights.values), weights.count, k, trs, sparseWeights);
+        sparsify(static_cast<float const*>(weights.values), weights.count, k, rs, sparseWeights);
         break;
     case DataType::kHALF:
-        sparsify(static_cast<half_float::half const*>(weights.values), weights.count, k, trs, sparseWeights);
+        sparsify(static_cast<half_float::half const*>(weights.values), weights.count, k, rs, sparseWeights);
         break;
     case DataType::kINT8:
     case DataType::kINT32:
-    case DataType::kUINT8:
     case DataType::kBOOL: break;
     }
-}
-
-template <typename T>
-void print(std::ostream& os, T v)
-{
-    os << v;
-}
-
-void print(std::ostream& os, int8_t v)
-{
-    os << static_cast<int32_t>(v);
 }
 
 template <typename T>
 void dumpBuffer(void const* buffer, std::string const& separator, std::ostream& os, Dims const& dims,
     Dims const& strides, int32_t vectorDim, int32_t spv)
 {
-    auto const vol = volume(dims);
+    int64_t const volume = std::accumulate(dims.d, dims.d + dims.nbDims, 1, std::multiplies<int64_t>());
     T const* typedBuffer = static_cast<T const*>(buffer);
     std::string sep;
-    for (int64_t v = 0; v < vol; ++v)
+    for (int64_t v = 0; v < volume; ++v)
     {
         int64_t curV = v;
         int32_t dataOffset = 0;
@@ -409,9 +387,8 @@ void dumpBuffer(void const* buffer, std::string const& separator, std::ostream& 
             ASSERT(curV >= 0);
         }
 
-        os << sep;
+        os << sep << typedBuffer[dataOffset];
         sep = separator;
-        print(os, typedBuffer[dataOffset]);
     }
 }
 
@@ -426,25 +403,23 @@ template void dumpBuffer<float>(void const* buffer, std::string const& separator
     Dims const& strides, int32_t vectorDim, int32_t spv);
 template void dumpBuffer<__half>(void const* buffer, std::string const& separator, std::ostream& os, Dims const& dims,
     Dims const& strides, int32_t vectorDim, int32_t spv);
-template void dumpBuffer<uint8_t>(void const* buffer, std::string const& separator, std::ostream& os, Dims const& dims,
-    Dims const& strides, int32_t vectorDim, int32_t spv);
 
 template <typename T>
-void sparsify(T const* values, int64_t count, int32_t k, int32_t trs, std::vector<int8_t>& sparseWeights)
+void sparsify(T const* values, int64_t count, int32_t k, int32_t rs, std::vector<int8_t>& sparseWeights)
 {
-    auto const c = count / (k * trs);
+    auto const c = count / (k * rs);
     sparseWeights.resize(count * sizeof(T));
     auto* sparseValues = reinterpret_cast<T*>(sparseWeights.data());
 
     constexpr int32_t window = 4;
     constexpr int32_t nonzeros = 2;
 
-    int32_t const crs = c * trs;
-    auto const getIndex = [=](int32_t ki, int32_t ci, int32_t rsi) { return ki * crs + ci * trs + rsi; };
+    int32_t const crs = c * rs;
+    auto const getIndex = [=](int32_t ki, int32_t ci, int32_t rsi) { return ki * crs + ci * rs + rsi; };
 
     for (int64_t ki = 0; ki < k; ++ki)
     {
-        for (int64_t rsi = 0; rsi < trs; ++rsi)
+        for (int64_t rsi = 0; rsi < rs; ++rsi)
         {
             int32_t w = 0;
             int32_t nz = 0;
@@ -472,9 +447,9 @@ void sparsify(T const* values, int64_t count, int32_t k, int32_t trs, std::vecto
 
 // Explicit instantiation
 template void sparsify<float>(
-    float const* values, int64_t count, int32_t k, int32_t trs, std::vector<int8_t>& sparseWeights);
+    float const* values, int64_t count, int32_t k, int32_t rs, std::vector<int8_t>& sparseWeights);
 template void sparsify<half_float::half>(
-    half_float::half const* values, int64_t count, int32_t k, int32_t trs, std::vector<int8_t>& sparseWeights);
+    half_float::half const* values, int64_t count, int32_t k, int32_t rs, std::vector<int8_t>& sparseWeights);
 
 template <typename T>
 void transpose2DWeights(void* dst, void const* src, int32_t const m, int32_t const n)
@@ -523,6 +498,5 @@ template void fillBuffer<float>(void* buffer, int64_t volume, float min, float m
 template void fillBuffer<int32_t>(void* buffer, int64_t volume, int32_t min, int32_t max);
 template void fillBuffer<int8_t>(void* buffer, int64_t volume, int8_t min, int8_t max);
 template void fillBuffer<__half>(void* buffer, int64_t volume, __half min, __half max);
-template void fillBuffer<uint8_t>(void* buffer, int64_t volume, uint8_t min, uint8_t max);
 
 } // namespace sample

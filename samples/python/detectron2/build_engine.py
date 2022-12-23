@@ -22,7 +22,8 @@ import argparse
 
 import numpy as np
 import tensorrt as trt
-from cuda import cuda
+import pycuda.driver as cuda
+import pycuda.autoinit
 
 from image_batcher import ImageBatcher
 
@@ -30,18 +31,6 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger("EngineBuilder").setLevel(logging.INFO)
 log = logging.getLogger("EngineBuilder")
 
-def _cuda_error_check(args):
-    """CUDA error checking."""
-    err, ret = args[0], args[1:]
-    if isinstance(err, cuda.CUresult):
-      if err != cuda.CUresult.CUDA_SUCCESS:
-        raise RuntimeError("Cuda Error: {}".format(err))
-    else:
-      raise RuntimeError("Unknown error type: {}".format(err))
-    # Special case so that no unpacking is needed at call-site.
-    if len(ret) == 1:
-      return ret[0]
-    return ret
 
 class EngineCalibrator(trt.IInt8MinMaxCalibrator):
     """
@@ -65,8 +54,8 @@ class EngineCalibrator(trt.IInt8MinMaxCalibrator):
         :param image_batcher: The ImageBatcher object
         """
         self.image_batcher = image_batcher
-        self.size = int(np.dtype(self.image_batcher.dtype).itemsize * np.prod(self.image_batcher.shape))
-        self.batch_allocation = _cuda_error_check(cuda.cuMemAlloc(self.size))
+        size = int(np.dtype(self.image_batcher.dtype).itemsize * np.prod(self.image_batcher.shape))
+        self.batch_allocation = cuda.mem_alloc(size)
         self.batch_generator = self.image_batcher.get_batch()
 
     def get_batch_size(self):
@@ -91,12 +80,7 @@ class EngineCalibrator(trt.IInt8MinMaxCalibrator):
         try:
             batch, _, _ = next(self.batch_generator)
             log.info("Calibrating image {} / {}".format(self.image_batcher.image_index, self.image_batcher.num_images))
-            _cuda_error_check(
-                cuda.cuMemcpyHtoD(
-                    self.batch_allocation, 
-                    np.ascontiguousarray(batch), 
-                    self.size))
-
+            cuda.memcpy_htod(self.batch_allocation, np.ascontiguousarray(batch))
             return [int(self.batch_allocation)]
         except StopIteration:
             log.info("Finished calibration batches")

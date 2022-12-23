@@ -25,10 +25,6 @@
 
 using namespace nvinfer1;
 
-namespace nvinfer1
-{
-namespace plugin
-{
 namespace
 {
 std::string GRID_ANCHOR_PLUGIN_NAMES[] = {"GridAnchor_TRT", "GridAnchorRect_TRT"};
@@ -538,6 +534,3 @@ GridAnchorRectPluginCreator::GridAnchorRectPluginCreator()
 {
     mPluginName = GRID_ANCHOR_PLUGIN_NAMES[1];
 }
-
-} // namespace plugin
-} // namespace nvinfer1

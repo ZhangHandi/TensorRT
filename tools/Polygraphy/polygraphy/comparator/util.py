@@ -22,77 +22,59 @@ from polygraphy.logger import G_LOGGER
 np = mod.lazy_import("numpy")
 
 
-def cast_up(buffer):
-    dtype = np.dtype(buffer.dtype)
-
-    if dtype == np.dtype(np.float16):
-        buffer = buffer.astype(np.float32)
-    elif dtype in list(map(np.dtype, [np.int8, np.uint8, np.int16, np.uint16])):
-        buffer = buffer.astype(np.int32)
-    elif dtype == np.dtype(np.uint32):
-        buffer = buffer.astype(np.int64)
-    return buffer
-
-
-def use_higher_precision(func):
-    """
-    Decorator that will cast the input numpy buffer(s) to a higher precision before computation.
-    """
-
+def zero_on_empty(func):
     @functools.wraps(func)
-    def wrapped(*buffers):
-        if any(util.is_empty_shape(buffer.shape) for buffer in buffers):
+    def wrapped(buffer):
+        if util.is_empty_shape(buffer.shape):
             return 0
-
-        new_buffers = [cast_up(buffer) for buffer in buffers]
-        return func(*new_buffers)
+        return func(buffer)
 
     return wrapped
 
 
-@use_higher_precision
+@zero_on_empty
 def compute_max(buffer):
     return np.amax(buffer)
 
 
 # Returns index of max value
-@use_higher_precision
+@zero_on_empty
 def compute_argmax(buffer):
     return np.unravel_index(np.argmax(buffer), buffer.shape)
 
 
-@use_higher_precision
+@zero_on_empty
 def compute_min(buffer):
     return np.amin(buffer)
 
 
 # Returns index of min value
-@use_higher_precision
+@zero_on_empty
 def compute_argmin(buffer):
     return np.unravel_index(np.argmin(buffer), buffer.shape)
 
 
-@use_higher_precision
+@zero_on_empty
 def compute_mean(buffer):
     return np.mean(buffer)
 
 
-@use_higher_precision
+@zero_on_empty
 def compute_stddev(buffer):
     return np.std(buffer)
 
 
-@use_higher_precision
+@zero_on_empty
 def compute_variance(buffer):
     return np.var(buffer)
 
 
-@use_higher_precision
+@zero_on_empty
 def compute_median(buffer):
     return np.median(buffer)
 
 
-@use_higher_precision
+@zero_on_empty
 def compute_average_magnitude(buffer):
     return np.mean(np.abs(buffer))
 

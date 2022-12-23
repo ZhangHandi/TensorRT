@@ -71,7 +71,7 @@ public:
     virtual nvinfer1::Dims4 getDimensions() noexcept = 0;
     virtual nvinfer1::DataType getDataType() noexcept = 0;
     //!
-    //! \deprecated Deprecated in TensorRT 8.0. Superseded by `delete`.
+    //! \deprecated Use `delete` instead. Deprecated in TensorRT 8.0.
     //!
     //! \warning Calling destroy on a managed pointer will result in a double-free error.
     //!
@@ -180,7 +180,7 @@ public:
     //!
     //! \brief Destroy this ICaffeParser object.
     //!
-    //! \deprecated Deprecated in TensorRT 8.0. Superseded by `delete`.
+    //! \deprecated Use `delete` instead. Deprecated in TensorRT 8.0.
     //!
     //! \warning Calling destroy on a managed pointer will result in a double-free error.
     //!

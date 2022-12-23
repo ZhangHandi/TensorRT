@@ -24,6 +24,7 @@
 
 #include <cstring>
 #include <vector>
+#include <iostream>
 
 using namespace nvinfer1;
 using namespace nvinfer1::plugin;
@@ -416,26 +417,24 @@ IPluginV2* SkipLayerNormPluginDynamicCreator::createPlugin(const char* name, con
     {
         BERT_DEBUG_MSG("SkipLayerNormPluginDynamicCreator createPlugin");
 
-        int32_t ld = 0;
+        int ld = 0;
         Weights beta{DataType::kFLOAT, nullptr, 0};
         Weights gamma{DataType::kFLOAT, nullptr, 0};
         Weights bias{DataType::kFLOAT, nullptr, 0};
-        int32_t typeId = -1;
+        int typeId = -1;
 
-        plugin::validateRequiredAttributesExist({"type_id", "beta", "ld", "gamma"}, fc);
-
-        for (int32_t i = 0; i < fc->nbFields; i++)
+        for (int i = 0; i < fc->nbFields; i++)
         {
             std::string field_name(fc->fields[i].name);
             if (field_name.compare("ld") == 0)
             {
-                ld = *static_cast<int32_t const*>(fc->fields[i].data);
+                ld = *static_cast<const int*>(fc->fields[i].data);
                 BERT_DEBUG_VALUE("Building ld: ", ld);
             }
 
             if (field_name.compare("type_id") == 0)
             {
-                typeId = *static_cast<int32_t const*>(fc->fields[i].data);
+                typeId = *static_cast<const int*>(fc->fields[i].data);
                 BERT_DEBUG_VALUE("Building typeId: ", typeId);
             }
 
@@ -666,7 +665,14 @@ void SkipLayerNormVarSeqlenPlugin::configurePlugin(
     const auto& inDims1 = inputs[1].desc.dims;
     TRT_UNUSED inDims1;
     PLUGIN_ASSERT(inDims0.nbDims == inDims1.nbDims);
-
+    //std::cout << "sk ln var seq len inDims0 d[0]" << inDims0.d[0] << std::endl;
+    //std::cout << "sk ln var seq len inDims0 d[1]" << inDims0.d[1] << std::endl;
+    //std::cout << "sk ln var seq len inDims0 d[2]" << inDims0.d[2] << std::endl;
+    //std::cout << "sk ln var seq len inDims0 d[3]" << inDims0.d[3] << std::endl;
+    //std::cout << "sk ln var seq len inDims1 d[0]" << inDims1.d[0] << std::endl;
+    //std::cout << "sk ln var seq len inDims1 d[1]" << inDims1.d[1] << std::endl;
+    //std::cout << "sk ln var seq len inDims1 d[2]" << inDims1.d[2] << std::endl;
+    //std::cout << "sk ln var seq len inDims1 d[3]" << inDims1.d[3] << std::endl; 
     PLUGIN_ASSERT(std::equal(inDims0.d, inDims0.d + inDims0.nbDims, inDims1.d));
 
     mCfgType = inputs[0].desc.type == DataType::kINT8 ? DataType::kHALF : inputs[0].desc.type;
@@ -688,11 +694,13 @@ int SkipLayerNormVarSeqlenPlugin::enqueue(const PluginTensorDesc* inputDesc, con
     PLUGIN_ASSERT(inputVolume % mLd == 0 && "inconsistent dimensions");
     int status = -1;
     DataType iType = inputDesc->type;
-
+    
+    //std::cout << "skiplayernorm var seqlen enequeu" << std::endl;
     // Our plugin outputs only one tensor
     // Launch CUDA kernel wrapper and save its return value
     if (iType == DataType::kFLOAT)
     {
+        //std::cout << "skiplayernorm plugin dynamic kfloat" << std::endl;
         const auto* const input = static_cast<const float*>(inputs[0]);
         const auto* const skip = static_cast<const float*>(inputs[1]);
         auto* output = static_cast<float*>(outputs[0]);
@@ -712,14 +720,37 @@ int SkipLayerNormVarSeqlenPlugin::enqueue(const PluginTensorDesc* inputDesc, con
     }
     else if (iType == DataType::kHALF)
     {
+        //std::cout << "skiplayernorm plugin dynamic khalf" << std::endl;
+        //std::cout << "input 0 in skln half plugin type: " << typeid(inputs[0]).name() << std::endl;
+        //std::cout << "input 1 in skln half plugin type: " << typeid(inputs[1]).name() << std::endl;
         const auto* const input = static_cast<const half*>(inputs[0]);
+        //std::cout << "input 0 in skln half after trans half: " << typeid(input).name() << std::endl;
         const auto* const skip = static_cast<const half*>(inputs[1]);
+        //std::cout << "input 1 in skln half after trans half: " << typeid(skip).name() << std::endl;
+        size_t size1 = sizeof(half) * inputVolume;
+        size_t size2 = sizeof(half) * inputVolume;
+        half* d_in1 = reinterpret_cast<half*>(malloc(size1));
+        half* d_in2 = reinterpret_cast<half*>(malloc(size2));
+        cudaMemcpy(d_in1, input, size1, cudaMemcpyDeviceToHost);
+        cudaMemcpy(d_in2, skip, size2, cudaMemcpyDeviceToHost);
+        std::cout << "input1 in skln half plugin: ";
+        for (int i=0; i<20; i++) {
+          std::cout << +d_in1[i] << ", ";
+        } 
+        std::cout << std::endl;
+        std::cout << "input2 in skln half plugin: ";
+        for (int i=0; i<20; i++) {
+          std::cout << +d_in2[i] << ", ";
+        }
+        std::cout << std::endl;
+
         auto* output = static_cast<half*>(outputs[0]);
         const auto* const bias = static_cast<const half*>(mBiasDev.get());
         const auto* const beta = static_cast<const half*>(mBetaDev.get());
         const auto* const gamma = static_cast<const half*>(mGammaDev.get());
         if (mHasBias)
         {
+            //std::cout << "skiplayernorm has bias true" << std::endl;
             status = computeSkipLayerNorm<half, true>(
                 stream, static_cast<int>(mLd), inputVolume, input, skip, beta, gamma, output, bias);
         }
@@ -728,9 +759,18 @@ int SkipLayerNormVarSeqlenPlugin::enqueue(const PluginTensorDesc* inputDesc, con
             status
                 = computeSkipLayerNorm<half, false>(stream, static_cast<int>(mLd), inputVolume, input, skip, beta, gamma, output, bias);
         }
+        size_t size3 = sizeof(half) * inputVolume;
+        half* d_output = reinterpret_cast<half*>(malloc(size3));
+        cudaMemcpy(d_output, output, size3, cudaMemcpyDeviceToHost);
+        std::cout << "output in skln half plugin: ";
+        for (int i=0; i<10; i++) {
+            std::cout << +d_output[i] << ", ";
+        }
+        std::cout << std::endl;      
     }
     else if (iType == DataType::kINT8)
     {
+        //std::cout << "skiplayernorm plugin dynamic kint8" << std::endl;
         const float dqScaleIn = inputDesc[0].scale;
         const float dqScaleSkip = inputDesc[1].scale;
         const float qScale = 1.F / outputDesc[0].scale;
@@ -872,17 +912,15 @@ IPluginV2* SkipLayerNormVarSeqlenPluginCreator::createPlugin(const char* name, c
         Weights beta{DataType::kFLOAT, nullptr, 0};
         Weights gamma{DataType::kFLOAT, nullptr, 0};
         Weights bias{DataType::kFLOAT, nullptr, 0};
-        int32_t typeId = -1;
+        int typeId = -1;
 
-        plugin::validateRequiredAttributesExist({"type_id", "beta", "gamma"}, fc);
-
-        for (int32_t i = 0; i < fc->nbFields; i++)
+        for (int i = 0; i < fc->nbFields; i++)
         {
             std::string field_name(fc->fields[i].name);
 
             if (field_name.compare("type_id") == 0)
             {
-                typeId = *static_cast<int32_t const*>(fc->fields[i].data);
+                typeId = *static_cast<const int*>(fc->fields[i].data);
                 BERT_DEBUG_VALUE("Building typeId: ", typeId);
             }
 

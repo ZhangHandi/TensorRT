@@ -28,13 +28,30 @@
 
 #include "logger.h"
 #include "sampleOptions.h"
-#include "sampleUtils.h"
-using namespace nvinfer1;
+
 namespace sample
 {
 
 namespace
 {
+
+std::vector<std::string> splitToStringVec(const std::string& option, char separator)
+{
+    std::vector<std::string> options;
+
+    for (size_t start = 0; start < option.length();)
+    {
+        size_t separatorIndex = option.find(separator, start);
+        if (separatorIndex == std::string::npos)
+        {
+            separatorIndex = option.length();
+        }
+        options.emplace_back(option.substr(start, separatorIndex - start));
+        start = separatorIndex + 1;
+    }
+
+    return options;
+}
 
 template <typename T>
 T stringToValue(const std::string& option)
@@ -199,28 +216,6 @@ const char* boolToEnabled(bool enable)
     return enable ? "Enabled" : "Disabled";
 }
 
-//! A helper function similar to sep.join(list) in Python.
-template <typename T>
-std::string joinValuesToString(std::vector<T> const& list, std::string const& sep)
-{
-    std::ostringstream os;
-    for (int32_t i = 0, n = list.size(); i < n; ++i)
-    {
-        os << list[i];
-        if (i != n - 1)
-        {
-            os << sep;
-        }
-    }
-    return os.str();
-}
-
-template <typename T, size_t N>
-std::string joinValuesToString(std::array<T, N> const& list, std::string const& sep)
-{
-    return joinValuesToString(std::vector<T>(list.begin(), list.end()), sep);
-}
-
 //! Check if input option exists in input arguments.
 //! If it does: return its value, erase the argument and return true.
 //! If it does not: return false.
@@ -368,22 +363,10 @@ bool getShapesInference(
     return retVal;
 }
 
-void fillShapes(std::unordered_map<std::string, ShapeRange>& shapes, std::string const& name,
-    ShapeRange const& sourceShapeRange, nvinfer1::OptProfileSelector minDimsSource,
-    nvinfer1::OptProfileSelector optDimsSource, nvinfer1::OptProfileSelector maxDimsSource)
-{
-    insertShapesBuild(
-        shapes, nvinfer1::OptProfileSelector::kMIN, name, sourceShapeRange[static_cast<size_t>(minDimsSource)]);
-    insertShapesBuild(
-        shapes, nvinfer1::OptProfileSelector::kOPT, name, sourceShapeRange[static_cast<size_t>(optDimsSource)]);
-    insertShapesBuild(
-        shapes, nvinfer1::OptProfileSelector::kMAX, name, sourceShapeRange[static_cast<size_t>(maxDimsSource)]);
-}
-
 void processShapes(
     std::unordered_map<std::string, ShapeRange>& shapes, bool minShapes, bool optShapes, bool maxShapes, bool calib)
 {
-    // Only accept optShapes only or all three of minShapes, optShapes, maxShapes when calib is set
+    // Only accept optShapes only or all three of minShapes, optShapes, maxShapes
     if (((minShapes || maxShapes) && !optShapes)   // minShapes only, maxShapes only, both minShapes and maxShapes
         || (minShapes && !maxShapes && optShapes)  // both minShapes and optShapes
         || (!minShapes && maxShapes && optShapes)) // both maxShapes and optShapes
@@ -393,75 +376,28 @@ void processShapes(
             throw std::invalid_argument(
                 "Must specify only --optShapesCalib or all of --minShapesCalib, --optShapesCalib, --maxShapesCalib");
         }
+        else
+        {
+            throw std::invalid_argument(
+                "Must specify only --optShapes or all of --minShapes, --optShapes, --maxShapes");
+        }
     }
 
-    if (!minShapes && !optShapes && !maxShapes)
+    // If optShapes only, expand optShapes to minShapes and maxShapes
+    if (optShapes && !minShapes && !maxShapes)
     {
-        return;
+        std::unordered_map<std::string, ShapeRange> newShapes;
+        for (auto& s : shapes)
+        {
+            insertShapesBuild(newShapes, nvinfer1::OptProfileSelector::kMIN, s.first,
+                s.second[static_cast<size_t>(nvinfer1::OptProfileSelector::kOPT)]);
+            insertShapesBuild(newShapes, nvinfer1::OptProfileSelector::kOPT, s.first,
+                s.second[static_cast<size_t>(nvinfer1::OptProfileSelector::kOPT)]);
+            insertShapesBuild(newShapes, nvinfer1::OptProfileSelector::kMAX, s.first,
+                s.second[static_cast<size_t>(nvinfer1::OptProfileSelector::kOPT)]);
+        }
+        shapes = newShapes;
     }
-
-    std::unordered_map<std::string, ShapeRange> newShapes;
-    for (auto& s : shapes)
-    {
-        nvinfer1::OptProfileSelector minDimsSource, optDimsSource, maxDimsSource;
-        minDimsSource = nvinfer1::OptProfileSelector::kMIN;
-        optDimsSource = nvinfer1::OptProfileSelector::kOPT;
-        maxDimsSource = nvinfer1::OptProfileSelector::kMAX;
-
-        // Populate missing minShapes
-        if (!minShapes)
-        {
-            if (optShapes)
-            {
-                minDimsSource = optDimsSource;
-                sample::gLogWarning << "optShapes is being broadcasted to minShapes for tensor " << s.first
-                                    << std::endl;
-            }
-            else
-            {
-                minDimsSource = maxDimsSource;
-                sample::gLogWarning << "maxShapes is being broadcasted to minShapes for tensor " << s.first
-                                    << std::endl;
-            }
-        }
-
-        // Populate missing optShapes
-        if (!optShapes)
-        {
-            if (maxShapes)
-            {
-                optDimsSource = maxDimsSource;
-                sample::gLogWarning << "maxShapes is being broadcasted to optShapes for tensor " << s.first
-                                    << std::endl;
-            }
-            else
-            {
-                optDimsSource = minDimsSource;
-                sample::gLogWarning << "minShapes is being broadcasted to optShapes for tensor " << s.first
-                                    << std::endl;
-            }
-        }
-
-        // Populate missing maxShapes
-        if (!maxShapes)
-        {
-            if (optShapes)
-            {
-                maxDimsSource = optDimsSource;
-                sample::gLogWarning << "optShapes is being broadcasted to maxShapes for tensor " << s.first
-                                    << std::endl;
-            }
-            else
-            {
-                maxDimsSource = minDimsSource;
-                sample::gLogWarning << "minShapes is being broadcasted to maxShapes for tensor " << s.first
-                                    << std::endl;
-            }
-        }
-
-        fillShapes(newShapes, s.first, s.second, minDimsSource, optDimsSource, maxDimsSource);
-    }
-    shapes = newShapes;
 }
 
 template <typename T>
@@ -517,7 +453,6 @@ std::ostream& printTacticSources(
         addSource(1U << static_cast<uint32_t>(nvinfer1::TacticSource::kCUBLAS_LT), "cublasLt");
         addSource(1U << static_cast<uint32_t>(nvinfer1::TacticSource::kCUDNN), "cudnn");
         addSource(1U << static_cast<uint32_t>(nvinfer1::TacticSource::kEDGE_MASK_CONVOLUTIONS), "edge mask convolutions");
-        addSource(1U << static_cast<uint32_t>(nvinfer1::TacticSource::kJIT_CONVOLUTIONS), "JIT convolutions");
     }
     return os;
 }
@@ -590,40 +525,6 @@ std::ostream& printMemoryPools(std::ostream& os, BuildOptions const& options)
     os << ", ";
     os << "dlaGlobalDRAM: ";
     printValueOrDefault(options.dlaGlobalDRAM);
-    return os;
-}
-
-std::string previewFeatureToString(PreviewFeature feature)
-{
-    // clang-format off
-    switch (feature)
-    {
-    case PreviewFeature::kFASTER_DYNAMIC_SHAPES_0805: return "kFASTER_DYNAMIC_SHAPES_0805";
-    case PreviewFeature::kDISABLE_EXTERNAL_TACTIC_SOURCES_FOR_CORE_0805: return "kDISABLE_EXTERNAL_TACTIC_SOURCES_FOR_CORE_0805";
-    }
-    return "Invalid Preview Feature";
-    // clang-format on
-}
-
-std::ostream& printPreviewFlags(std::ostream& os, BuildOptions const& options)
-{
-    if (options.previewFeatures.empty())
-    {
-        os << "Use default preview flags.";
-        return os;
-    }
-
-    auto const addFlag = [&](PreviewFeature feat) {
-        int32_t featVal = static_cast<int32_t>(feat);
-        if (options.previewFeatures.find(featVal) != options.previewFeatures.end())
-        {
-            os << previewFeatureToString(feat) << (options.previewFeatures.at(featVal) ? " [ON], " : " [OFF], ");
-        }
-    };
-
-    addFlag(PreviewFeature::kFASTER_DYNAMIC_SHAPES_0805);
-    addFlag(PreviewFeature::kDISABLE_EXTERNAL_TACTIC_SOURCES_FOR_CORE_0805);
-
     return os;
 }
 
@@ -986,10 +887,6 @@ void BuildOptions::parse(Arguments& arguments)
             {
                 source = nvinfer1::TacticSource::kEDGE_MASK_CONVOLUTIONS;
             }
-            else if (t == "JIT_CONVOLUTIONS")
-            {
-                source = nvinfer1::TacticSource::kJIT_CONVOLUTIONS;
-            }
             else
             {
                 throw std::invalid_argument(std::string("Unknown tactic source: ") + t);
@@ -1028,41 +925,6 @@ void BuildOptions::parse(Arguments& arguments)
     {
         timingCacheMode = TimingCacheMode::kLOCAL;
     }
-    getAndDelOption(arguments, "--heuristic", heuristic);
-
-    std::string previewFeaturesBuf;
-    getAndDelOption(arguments, "--preview", previewFeaturesBuf);
-    std::vector<std::string> previewFeaturesVec{splitToStringVec(previewFeaturesBuf, ',')};
-    for (auto featureName : previewFeaturesVec)
-    {
-        bool enable{false};
-        if (featureName.front() == '+')
-        {
-            enable = true;
-        }
-        else if (featureName.front() != '-')
-        {
-            throw std::invalid_argument(
-                "Tactic source must be prefixed with + or -, indicating whether it should be enabled or disabled "
-                "respectively.");
-        }
-        featureName.erase(0, 1);
-
-        PreviewFeature feat{};
-        if (featureName == "fasterDynamicShapes0805")
-        {
-            feat = PreviewFeature::kFASTER_DYNAMIC_SHAPES_0805;
-        }
-        else if (featureName == "disableExternalTacticSourcesForCore0805")
-        {
-            feat = PreviewFeature::kDISABLE_EXTERNAL_TACTIC_SOURCES_FOR_CORE_0805;
-        }
-        else
-        {
-            throw std::invalid_argument(std::string("Unknown preview feature: ") + featureName);
-        }
-        previewFeatures[static_cast<int32_t>(feat)] = enable;
-    }
 }
 
 void SystemOptions::parse(Arguments& arguments)
@@ -1098,7 +960,6 @@ void InferenceOptions::parse(Arguments& arguments)
     getAndDelOption(arguments, "--separateProfileRun", rerun);
     getAndDelOption(arguments, "--timeDeserialize", timeDeserialize);
     getAndDelOption(arguments, "--timeRefit", timeRefit);
-    getAndDelOption(arguments, "--persistentCacheRatio", persistentCacheRatio);
 
     std::string list;
     getAndDelOption(arguments, "--loadInputs", list);
@@ -1111,6 +972,7 @@ void InferenceOptions::parse(Arguments& arguments)
 
 void ReportingOptions::parse(Arguments& arguments)
 {
+    getAndDelOption(arguments, "--percentile", percentile);
     getAndDelOption(arguments, "--avgRuns", avgs);
     getAndDelOption(arguments, "--verbose", verbose);
     getAndDelOption(arguments, "--dumpRefit", refit);
@@ -1121,25 +983,9 @@ void ReportingOptions::parse(Arguments& arguments)
     getAndDelOption(arguments, "--exportOutput", exportOutput);
     getAndDelOption(arguments, "--exportProfile", exportProfile);
     getAndDelOption(arguments, "--exportLayerInfo", exportLayerInfo);
-
-    std::string percentileString;
-    getAndDelOption(arguments, "--percentile", percentileString);
-    std::vector<std::string> percentileStrings = splitToStringVec(percentileString, ',');
-    if (!percentileStrings.empty())
+    if (percentile < 0 || percentile > 100)
     {
-        percentiles.clear();
-    }
-    for (const auto& p : percentileStrings)
-    {
-        percentiles.push_back(stringToValue<float>(p));
-    }
-
-    for (auto percentile : percentiles)
-    {
-        if (percentile < 0.F || percentile > 100.F)
-        {
-            throw std::invalid_argument(std::string("Percentile ") + std::to_string(percentile) + "is not in [0,100]");
-        }
+        throw std::invalid_argument(std::string("Percentile ") + std::to_string(percentile) + "is not in [0,100]");
     }
 }
 
@@ -1215,9 +1061,6 @@ void AllOptions::parse(Arguments& arguments)
         }
     }
 
-    // Set nvtxVerbosity to be the same as build-time profilingVerbosity.
-    inference.nvtxVerbosity = build.profilingVerbosity;
-
     reporting.parse(arguments);
     helps = parseHelp(arguments);
 
@@ -1252,16 +1095,6 @@ void AllOptions::parse(Arguments& arguments)
             }
         }
     }
-}
-
-void TaskInferenceOptions::parse(Arguments& arguments)
-{
-    getAndDelOption(arguments, "engine", engine);
-    getAndDelOption(arguments, "device", device);
-    getAndDelOption(arguments, "batch", batch);
-    getAndDelOption(arguments, "DLACore", DLACore);
-    getAndDelOption(arguments, "graph", graph);
-    getAndDelOption(arguments, "persistentCacheRatio", persistentCacheRatio);
 }
 
 void SafeBuilderOptions::parse(Arguments& arguments)
@@ -1411,11 +1244,6 @@ std::ostream& operator<<(std::ostream& os, nvinfer1::DataType dtype)
         os << "bool";
         break;
     }
-    case nvinfer1::DataType::kUINT8:
-    {
-        os << "UInt8";
-        break;
-    }
     }
     return os;
 }
@@ -1549,9 +1377,7 @@ std::ostream& operator<<(std::ostream& os, const BuildOptions& options)
           "Profiling verbosity: " << static_cast<int32_t>(options.profilingVerbosity)                                   << std::endl <<
           "Tactic sources: ";   printTacticSources(os, options.enabledTactics, options.disabledTactics)                 << std::endl <<
           "timingCacheMode: ";  printTimingCache(os, options.timingCacheMode)                                           << std::endl <<
-          "timingCacheFile: " << options.timingCacheFile                                                                << std::endl <<
-          "Heuristic: "       << boolToEnabled(options.heuristic)                                                       << std::endl <<
-          "Preview Features: "; printPreviewFlags(os, options)                                                          << std::endl;
+          "timingCacheFile: " << options.timingCacheFile                                                                << std::endl;
     // clang-format on
 
     auto printIOFormats = [](std::ostream& os, const char* direction, const std::vector<IOFormat> formats) {
@@ -1611,22 +1437,20 @@ std::ostream& operator<<(std::ostream& os, const InferenceOptions& options)
                           os << "Explicit"                                << std::endl;
     }
     printShapes(os, "inference", options.shapes);
-    os << "Iterations: "                << options.iterations                                   << std::endl <<
-          "Duration: "                  << options.duration   << "s (+ "
-                                        << options.warmup     << "ms warm up)"                  << std::endl <<
-          "Sleep time: "                << options.sleep      << "ms"                           << std::endl <<
-          "Idle time: "                 << options.idle       << "ms"                           << std::endl <<
-          "Streams: "                   << options.streams                                      << std::endl <<
-          "ExposeDMA: "                 << boolToEnabled(!options.overlap)                      << std::endl <<
-          "Data transfers: "            << boolToEnabled(!options.skipTransfers)                << std::endl <<
-          "Spin-wait: "                 << boolToEnabled(options.spin)                          << std::endl <<
-          "Multithreading: "            << boolToEnabled(options.threads)                       << std::endl <<
-          "CUDA Graph: "                << boolToEnabled(options.graph)                         << std::endl <<
-          "Separate profiling: "        << boolToEnabled(options.rerun)                         << std::endl <<
-          "Time Deserialize: "          << boolToEnabled(options.timeDeserialize)               << std::endl <<
-          "Time Refit: "                << boolToEnabled(options.timeRefit)                     << std::endl <<
-          "NVTX verbosity: "            << static_cast<int32_t>(options.nvtxVerbosity)          << std::endl <<
-          "Persistent Cache Ratio: "    << static_cast<float>(options.persistentCacheRatio)   << std::endl;
+    os << "Iterations: "         << options.iterations                    << std::endl <<
+          "Duration: "           << options.duration   << "s (+ "
+                                 << options.warmup     << "ms warm up)"   << std::endl <<
+          "Sleep time: "         << options.sleep      << "ms"            << std::endl <<
+          "Idle time: "          << options.idle       << "ms"            << std::endl <<
+          "Streams: "            << options.streams                       << std::endl <<
+          "ExposeDMA: "          << boolToEnabled(!options.overlap)       << std::endl <<
+          "Data transfers: "     << boolToEnabled(!options.skipTransfers) << std::endl <<
+          "Spin-wait: "          << boolToEnabled(options.spin)           << std::endl <<
+          "Multithreading: "     << boolToEnabled(options.threads)        << std::endl <<
+          "CUDA Graph: "         << boolToEnabled(options.graph)          << std::endl <<
+          "Separate profiling: " << boolToEnabled(options.rerun)          << std::endl <<
+          "Time Deserialize: "   << boolToEnabled(options.timeDeserialize) << std::endl <<
+          "Time Refit: "         << boolToEnabled(options.timeRefit)      << std::endl;
     // clang-format on
 
     os << "Inputs:" << std::endl;
@@ -1641,16 +1465,17 @@ std::ostream& operator<<(std::ostream& os, const InferenceOptions& options)
 std::ostream& operator<<(std::ostream& os, const ReportingOptions& options)
 {
     // clang-format off
-    os << "=== Reporting Options ==="                                                     << std::endl <<
-          "Verbose: "                     << boolToEnabled(options.verbose)               << std::endl <<
-          "Averages: "                    << options.avgs << " inferences"                << std::endl <<
-          "Percentiles: "                 << joinValuesToString(options.percentiles, ",") << std::endl <<
-          "Dump refittable layers:"       << boolToEnabled(options.refit)                 << std::endl <<
-          "Dump output: "                 << boolToEnabled(options.output)                << std::endl <<
-          "Profile: "                     << boolToEnabled(options.profile)               << std::endl <<
-          "Export timing to JSON file: "  << options.exportTimes                          << std::endl <<
-          "Export output to JSON file: "  << options.exportOutput                         << std::endl <<
-          "Export profile to JSON file: " << options.exportProfile                        << std::endl;
+    os << "=== Reporting Options ==="                                       << std::endl <<
+
+          "Verbose: "                     << boolToEnabled(options.verbose) << std::endl <<
+          "Averages: "                    << options.avgs << " inferences"  << std::endl <<
+          "Percentile: "                  << options.percentile             << std::endl <<
+          "Dump refittable layers:"       << boolToEnabled(options.refit)   << std::endl <<
+          "Dump output: "                 << boolToEnabled(options.output)  << std::endl <<
+          "Profile: "                     << boolToEnabled(options.profile) << std::endl <<
+          "Export timing to JSON file: "  << options.exportTimes            << std::endl <<
+          "Export output to JSON file: "  << options.exportOutput           << std::endl <<
+          "Export profile to JSON file: " << options.exportProfile          << std::endl;
     // clang-format on
 
     return os;
@@ -1832,16 +1657,9 @@ void BuildOptions::help(std::ostream& os)
           "                              Tactic Sources: tactics ::= [\",\"tactic]"                                                          "\n"
           "                                              tactic  ::= (+|-)lib"                                                               "\n"
           "                                              lib     ::= \"CUBLAS\"|\"CUBLAS_LT\"|\"CUDNN\"|\"EDGE_MASK_CONVOLUTIONS\""          "\n"
-          "                                                          |\"JIT_CONVOLUTIONS\""                                                  "\n"
           "                              For example, to disable cudnn and enable cublas: --tacticSources=-CUDNN,+CUBLAS"                    "\n"
           "  --noBuilderCache            Disable timing cache in builder (default is to enable timing cache)"                                "\n"
-          "  --heuristic                 Enable tactic selection heuristic in builder (default is to disable the heuristic)"                 "\n"
           "  --timingCacheFile=<file>    Save/load the serialized global timing cache"                                                       "\n"
-          "  --preview=features          Specify preview feature to be used by adding (+) or removing (-) preview features from the default" "\n"
-          "                              Preview Features: features ::= [\",\"feature]"                                                      "\n"
-          "                                                feature  ::= (+|-)flag"                                                           "\n"
-          "                                                flag     ::= \"fasterDynamicShapes0805\""                                         "\n"
-          "                                                             |\"disableExternalTacticSourcesForCore0805\""                        "\n"
           ;
     // clang-format on
     os << std::flush;
@@ -1901,9 +1719,7 @@ void InferenceOptions::help(std::ostream& os)
           "  --separateProfileRun        Do not attach the profiler in the benchmark run; if profiling is enabled, a second "
                                                                                 "profile run will be executed (default = disabled)"  << std::endl <<
           "  --buildOnly                 Exit after the engine has been built and skip inference perf measurement "
-                                                                                                             "(default = disabled)"  << std::endl <<
-          "  --persistentCacheRatio      Set the persistentCacheLimit in ratio, 0.5 represent half of max persistent L2 size "
-                                                                                                                    "(default = 0)"  << std::endl;
+                                                                                                             "(default = disabled)"  << std::endl;
     // clang-format on
 }
 
@@ -1914,9 +1730,9 @@ void ReportingOptions::help(std::ostream& os)
           "  --verbose                   Use verbose logging (default = false)"                          << std::endl <<
           "  --avgRuns=N                 Report performance measurements averaged over N consecutive "
                                                        "iterations (default = " << defaultAvgRuns << ")" << std::endl <<
-          "  --percentile=P1,P2,P3,...   Report performance for the P1,P2,P3,... percentages (0<=P_i<=100, 0 "
+          "  --percentile=P              Report performance for the P percentage (0<=P<=100, 0 "
                                         "representing max perf, and 100 representing min perf; (default"
-                                            " = " << joinValuesToString(defaultPercentiles, ",") << "%)" << std::endl <<
+                                                                      " = " << defaultPercentile << "%)" << std::endl <<
           "  --dumpRefit                 Print the refittable layers and weights from a refittable "
                                         "engine"                                                         << std::endl <<
           "  --dumpOutput                Print the output tensor(s) of the last inference iteration "
@@ -1930,20 +1746,6 @@ void ReportingOptions::help(std::ostream& os)
                                                                               "(default = disabled)"     << std::endl <<
           "  --exportLayerInfo=<file>    Write the layer information of the engine in a json file "
                                                                               "(default = disabled)"     << std::endl;
-    // clang-format on
-}
-
-void TaskInferenceOptions::help(std::ostream& os)
-{
-    // clang-format off
-    os << "=== Task Inference Options ==="                                                                                           << std::endl <<
-          "  engine=<file>               Specify a serialized engine for this task"                                                  << std::endl <<
-          "  device=N                    Specify a GPU device for this task"                                                         << std::endl <<
-          "  DLACore=N                   Specify a DLACore for this task"                                                            << std::endl <<
-          "  batch=N                     Set batch size for implicit batch engines (default = "              << defaultBatch << ")"  << std::endl <<
-          "                              This option should not be used for explicit batch engines"                                  << std::endl <<
-          "  graph=1                     Use cuda graph for this task"                                                               << std::endl <<
-          "  persistentCacheRatio=[0-1]  Set the persistentCacheLimit ratio for this task                            (default = 0)"  << std::endl;
     // clang-format on
 }
 

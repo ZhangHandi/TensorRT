@@ -34,15 +34,11 @@ class ToInput(Tool):
 
     def add_parser_args(self, parser):
         parser.add_argument(
-            "paths",
-            help="Path(s) to file(s) containing input or output data from Polygraphy. "
-            "Note: Output data must be generated using exactly one runner. "
-            "Otherwise, the outputs from one runner may be overwritten by those of a subsequent runner. ",
-            nargs="+",
+            "paths", help="Path(s) to file(s) containing input or output data from Polygraphy", nargs="+"
         )
         parser.add_argument("-o", "--output", help="Path to the file to generate", required=True)
 
-    def run_impl(self, args):
+    def run(self, args):
         inputs = []
 
         def update_inputs(new_inputs, path):
@@ -50,9 +46,7 @@ class ToInput(Tool):
 
             if inputs and len(inputs) != len(new_inputs):
                 G_LOGGER.warning(
-                    f"The provided files have different numbers of iterations.\n"
-                    f"Note: Inputs currently contains {len(inputs)} iterations, but the data in {path} contains "
-                    f"{len(new_inputs)} iterations. Some iterations will contain incomplete data. "
+                    f"The provided files have different numbers of iterations.\nNote: Inputs currently contains {len(inputs)} iterations, but the data in {path} contains {len(new_inputs)} iterations. Some iterations will contain incomplete data"
                 )
 
             # Pad to appropriate length
@@ -63,7 +57,7 @@ class ToInput(Tool):
 
         for path in args.paths:
             # Note: It's important we have encode/decode JSON methods registered
-            # for the types we care about, e.g. RunResults. Importing the class should guarantee this.
+            # for the types we care about, e.g. RunResults. Importing the class should generally guarantee this.
             data = load_json(path)
             if isinstance(data, RunResults):
                 for _, iters in data.items():

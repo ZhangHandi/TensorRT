@@ -80,7 +80,7 @@ class SkipLayerNormInterleavedPluginHFace : public SkipLayerNormInterleavedPlugi
 {
 public:
     SkipLayerNormInterleavedPluginHFace(
-        const std::string name, const nvinfer1::Weights& beta, const nvinfer1::Weights& gamma);
+        const std::string name, const nvinfer1::Weights& beta, const nvinfer1::Weights& gamma, const int output_fp16_flag);
 
     SkipLayerNormInterleavedPluginHFace(const std::string name, const void* data, size_t length);
 
@@ -89,6 +89,8 @@ public:
     SkipLayerNormInterleavedPluginHFace() = delete;
 
     // IPluginV2DynamicExt Methods
+    bool supportsFormatCombination(
+        int32_t pos, const nvinfer1::PluginTensorDesc* inOut, int32_t nbInputs, int32_t nbOutputs) noexcept override;
     nvinfer1::IPluginV2DynamicExt* clone() const noexcept override;
     int32_t enqueue(const nvinfer1::PluginTensorDesc* inputDesc, const nvinfer1::PluginTensorDesc* outputDesc,
         const void* const* inputs, void* const* outputs, void* workspace, cudaStream_t stream) noexcept override;
@@ -96,9 +98,13 @@ public:
     // IPluginV2 Methods
     int32_t initialize() noexcept override;
     void terminate() noexcept override;
+    void serialize(void* buffer) const noexcept override;
     void destroy() noexcept override;
     const char* getPluginVersion() const noexcept override;
     int32_t getNbOutputs() const noexcept override;
+ 
+protected:
+    size_t mOutputFp16Flag;
 };
 
 class SkipLayerNormInterleavedPluginMTron : public SkipLayerNormInterleavedPluginBase

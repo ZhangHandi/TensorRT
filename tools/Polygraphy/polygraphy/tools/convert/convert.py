@@ -46,7 +46,7 @@ class Convert(Tool):
     def __init__(self):
         super().__init__("convert")
 
-    def get_subscriptions_impl(self):
+    def get_subscriptions(self):
         return [
             ModelArgs(model_opt_required=True),
             TfLoadArgs(allow_artifacts=False),
@@ -55,14 +55,14 @@ class Convert(Tool):
             OnnxLoadArgs(allow_from_tf=True),
             OnnxSaveArgs(output_opt=False),
             DataLoaderArgs(),  # For int8 calibration
-            TrtConfigArgs(allow_engine_capability=True, allow_tensor_formats=True),
+            TrtConfigArgs(),
             TrtLoadPluginsArgs(),
-            TrtLoadNetworkArgs(allow_tensor_formats=True),
+            TrtLoadNetworkArgs(),
             TrtLoadEngineArgs(),
             TrtSaveEngineArgs(output_opt=False),
         ]
 
-    def add_parser_args_impl(self, parser):
+    def add_parser_args(self, parser):
         parser.add_argument("-o", "--output", help="Path to save the converted model", required=True)
         parser.add_argument(
             "--convert-to",
@@ -82,7 +82,7 @@ class Convert(Tool):
             default=None,
         )
 
-    def run_impl(self, args):
+    def run(self, args):
         if not args.convert_to:
             _, ext = os.path.splitext(args.output)
             if ext not in ModelArgs.EXT_MODEL_TYPE_MAPPING:

@@ -15,9 +15,9 @@
 # limitations under the License.
 #
 import argparse
+from collections import OrderedDict
 
 from polygraphy import mod
-from polygraphy.common.interface import TypedList
 from polygraphy.logger import G_LOGGER
 from polygraphy.tools.args import util as args_util
 from polygraphy.tools.args.base import BaseArgs, BaseRunnerArgs
@@ -31,19 +31,6 @@ def make_action_cls(runner_opt):
             namespace.runners.append(runner_opt)
 
     return StoreRunnerOrdered
-
-
-class RunnerOptList(TypedList(lambda: tuple)):
-    def keys(self):
-        for opt, _ in self.lst:
-            yield opt
-
-    def values(self):
-        for _, name in self.lst:
-            yield name
-
-    def items(self):
-        yield from self.lst
 
 
 @mod.export()
@@ -60,7 +47,7 @@ class RunnerSelectArgs(BaseArgs):
 
             name, opt = arg_group.get_name_opt()
             extra_help = arg_group.get_extra_help_text()
-            # Use opt as the key since it's guaranteed to be unique.
+            # Use opt as the kay since it's guaranteed to be unique.
             self._opt_to_group_map[opt] = arg_group
             self.group.add_argument(
                 f"--{opt}",
@@ -76,19 +63,18 @@ class RunnerSelectArgs(BaseArgs):
         Parses command-line arguments and populates the following attributes:
 
         Attributes:
-            runners (List[Tuple[str, str]]):
-                    A list of tuples mapping runner option strings to human readable names for all selected runners,
+            runners (OrderedDict[str, str]):
+                    An mapping of runner option strings to human readable names for all selected runners,
                     in the order they were selected in.
                     For example:
                     ::
 
-                        [("trt", "TensorRT"), ("onnxrt", "ONNX-Runtime")]
+                        {"trt": "TensorRT", "onnxrt": "ONNX-Runtime"}
         """
         runner_opts = args_util.get(args, "runners")
-
-        self.runners = RunnerOptList()
+        self.runners = OrderedDict()
         for opt in runner_opts:
-            self.runners.append((opt, self._opt_to_group_map[opt].get_name_opt()[0]))
+            self.runners[opt] = self._opt_to_group_map[opt].get_name_opt()[0]
 
     def add_to_script_impl(self, script):
         """

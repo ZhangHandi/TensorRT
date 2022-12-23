@@ -22,6 +22,7 @@
 #include "common/plugin.h"
 #include "efficientNMSParameters.h"
 
+using namespace nvinfer1::plugin;
 namespace nvinfer1
 {
 namespace plugin
@@ -65,7 +66,6 @@ public:
 
 protected:
     EfficientNMSParameters mParam{};
-    bool initialized{false};
     std::string mNamespace;
 };
 

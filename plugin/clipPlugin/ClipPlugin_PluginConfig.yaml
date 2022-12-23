@@ -19,7 +19,4 @@ versions:
       clipMax:
         min: "=ninf"
         max: "=pinf"
-    attributes_required:
-      - clipMin
-      - clipMax
 ...

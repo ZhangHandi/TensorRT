@@ -49,12 +49,8 @@ bool readBinaryProto(trtcaffe::NetParameter* net, const char* file, size_t bufSi
 
     IstreamInputStream rawInput(&stream);
     CodedInputStream codedInput(&rawInput);
-#if GOOGLE_PROTOBUF_VERSION >= 3011000
-        codedInput.SetTotalBytesLimit(int(bufSize));
-#else
-        // Note: This WARs the very low default size limit (64MB)
-        codedInput.SetTotalBytesLimit(int(bufSize), -1);
-#endif
+    codedInput.SetTotalBytesLimit(int(bufSize), -1);
+
     bool ok = net->ParseFromCodedStream(&codedInput);
     stream.close();
 

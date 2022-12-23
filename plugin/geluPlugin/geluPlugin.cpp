@@ -287,16 +287,14 @@ IPluginV2* GeluPluginDynamicCreator::createPlugin(const char* name, const Plugin
         gLogVerbose << "GeluPluginDynamicCreator createPlugin\n";
 
         Weights bias{DataType::kFLOAT, nullptr, 0};
-        int32_t typeId = -1;
-        plugin::validateRequiredAttributesExist({"type_id"}, fc);
-
-        for (int32_t i = 0; i < fc->nbFields; i++)
+        int typeId = -1;
+        for (int i = 0; i < fc->nbFields; i++)
         {
             std::string field_name(fc->fields[i].name);
 
             if (field_name.compare("type_id") == 0)
             {
-                typeId = *static_cast<int32_t const*>(fc->fields[i].data);
+                typeId = *static_cast<const int*>(fc->fields[i].data);
             }
             if (field_name.compare("bias") == 0)
             {

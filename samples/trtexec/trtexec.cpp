@@ -77,45 +77,15 @@ void printPerformanceProfile(ReportingOptions const& reporting, InferenceEnviron
     }
 }
 
-namespace details
+void printOutput(ReportingOptions const& reporting, InferenceEnvironment const& iEnv, int32_t batch)
 {
-template <typename ContextType>
-void dump(std::unique_ptr<ContextType> const& context, std::unique_ptr<Bindings> const& binding, ReportingOptions const& reporting, int32_t batch)
-{
-    if (!context)
-    {
-        sample::gLogError << "Empty context! Skip printing outputs." << std::endl;
-        return;
-    }
     if (reporting.output)
     {
-        dumpOutputs(*context, *binding, sample::gLogInfo);
+        dumpOutputs(*iEnv.contexts.front(), *iEnv.bindings.front(), sample::gLogInfo);
     }
     if (!reporting.exportOutput.empty())
     {
-        exportJSONOutput(*context, *binding, reporting.exportOutput, batch);
-    }
-}
-} // namespace details
-
-void printOutput(ReportingOptions const& reporting, InferenceEnvironment const& iEnv, int32_t batch)
-{
-    auto const& binding = iEnv.bindings.at(0);
-    if (!binding)
-    {
-        sample::gLogError << "Empty bindings! Skip printing outputs." << std::endl;
-        return;
-    }
-
-    if (iEnv.safe)
-    {
-        auto const& context = iEnv.safeContexts.at(0);
-        details::dump(context, binding, reporting, batch);
-    }
-    else
-    {
-        auto const& context = iEnv.contexts.at(0);
-        details::dump(context, binding, reporting, batch);
+        exportJSONOutput(*iEnv.contexts.front(), *iEnv.bindings.front(), reporting.exportOutput, batch);
     }
 }
 
@@ -302,7 +272,7 @@ int main(int argc, char** argv)
         }
     }
 
-    if (!setUpInference(*iEnv, options.inference, options.system))
+    if (!setUpInference(*iEnv, options.inference))
     {
         sample::gLogError << "Inference set up failed" << std::endl;
         return sample::gLogger.reportFail(sampleTest);

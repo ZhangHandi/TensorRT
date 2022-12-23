@@ -22,6 +22,7 @@
 
 #include <cstring>
 #include <vector>
+#include <iostream>
 
 using namespace nvinfer1;
 using namespace nvinfer1::plugin;
@@ -29,9 +30,13 @@ using namespace nvinfer1::plugin;
 namespace bert
 {
 
-int32_t launch_small_hface(cudaStream_t stream, const int32_t ld, const int32_t total, const int8_t* input,
+int32_t launch_small_hface(cudaStream_t stream, const int32_t ld, const int32_t total, const half* input,
     const int8_t* skip, const half* beta, const half* gamma, int8_t* output, const float dqScaleIn,
     const float dqScaleSkip, const float qScale);
+
+int32_t launch_small_hface_output_half(cudaStream_t stream, const int32_t ld, const int32_t total, const half* input, 
+    const int8_t* skip, const half* beta, const half* gamma, half* output, const float dqScaleIn, 
+    const float dqScaleSkip);
 
 int32_t launch_large_hface(cudaStream_t stream, const int32_t ld, const int32_t total, const int8_t* input,
     const int8_t* skip, const half* beta, const half* gamma, int8_t* output, const float dqScaleIn,
@@ -91,8 +96,15 @@ SkipLayerNormInterleavedPluginBase::SkipLayerNormInterleavedPluginBase(
 }
 
 SkipLayerNormInterleavedPluginHFace::SkipLayerNormInterleavedPluginHFace(
-    const std::string name, const Weights& beta, const Weights& gamma)
+    const std::string name, const Weights& beta, const Weights& gamma, const int output_fp16_flag)
     : SkipLayerNormInterleavedPluginBase(name, beta, gamma)
+    , mOutputFp16Flag(output_fp16_flag)
+//    : mLayerName(name)
+//    , mGammaDev(nullptr)
+//    , mBetaDev(nullptr)
+//    , mLd(beta.count)
+//    , mOutputFp16Flag(output_fp16_flag)
+//    , mParamsOnDevice(false)
 {
 }
 
@@ -111,7 +123,6 @@ SkipLayerNormInterleavedPluginBase::SkipLayerNormInterleavedPluginBase(
 {
     // Deserialize in the same order as serialization
     deserialize_value(&data, &length, &mLd);
-
     mParamWordsize = getElementSize(param_type);
 
     const char* d = static_cast<const char*>(data);
@@ -124,6 +135,15 @@ SkipLayerNormInterleavedPluginHFace::SkipLayerNormInterleavedPluginHFace(
     : SkipLayerNormInterleavedPluginBase(name, data, length)
 {
     BERT_DEBUG_MSG("SkipLayerNormInterleavedPluginHFace deserialize");
+
+    //std::cout << "mOutputFp16Flag in skln plugin hface deserialize" << std::endl;
+    deserialize_value(&data, &length, &mLd);
+    deserialize_value(&data, &length, &mOutputFp16Flag);
+    mParamWordsize = getElementSize(param_type);   
+
+    const char* d = static_cast<const char*>(data);
+    mBeta.convertAndCopy(d, mLd, param_type);
+    mGamma.convertAndCopy(d, mLd, param_type);
 }
 
 SkipLayerNormInterleavedPluginMTron::SkipLayerNormInterleavedPluginMTron(
@@ -140,7 +160,8 @@ IPluginV2DynamicExt* SkipLayerNormInterleavedPluginHFace::clone() const noexcept
     {
         BERT_DEBUG_MSG("SkipLayerNormInterleavedPluginHFace clone");
 
-        auto* p = new SkipLayerNormInterleavedPluginHFace(mLayerName, mBeta, mGamma);
+        //std::cout << "mOutputFp16Flag in clone: " << mOutputFp16Flag << std::endl;
+        auto* p = new SkipLayerNormInterleavedPluginHFace(mLayerName, mBeta, mGamma, mOutputFp16Flag);
         p->initialize();
         p->setPluginNamespace(mNamespace.c_str());
         return p;
@@ -186,16 +207,57 @@ bool SkipLayerNormInterleavedPluginBase::supportsFormatCombination(
     PLUGIN_ASSERT(nbOutputs == getNbOutputs());
 
     const PluginTensorDesc& desc = inOut[pos];
-    return desc.type == DataType::kINT8 && desc.format == TensorFormat::kCHW32;
+    if (pos == 1)
+    {
+        return desc.type == DataType::kINT8 && desc.format == TensorFormat::kCHW32;
+    }
+    if (pos == 0)
+    {
+        return desc.type == DataType::kHALF && desc.format == TensorFormat::kCHW32;
+    }
+    if (pos == 2)
+    {
+        return (desc.type == DataType::kINT8 && desc.format == TensorFormat::kCHW32);    
+    }
+    return desc.format == TensorFormat::kCHW32;
 }
 
+bool SkipLayerNormInterleavedPluginHFace::supportsFormatCombination(
+    int32_t pos, const PluginTensorDesc* inOut, int32_t nbInputs, int32_t nbOutputs) noexcept
+{
+    PLUGIN_ASSERT(nbInputs == 2);
+    PLUGIN_ASSERT(nbOutputs == getNbOutputs());
+
+    const PluginTensorDesc& desc = inOut[pos];
+    //std::cout << "data type: " << dysize(static_cast<const int>(desc.type)) << std::endl;
+    if (pos == 1)
+    {
+        return desc.type == DataType::kINT8 && desc.format == TensorFormat::kCHW32;
+    }
+    if (pos == 0)
+    {
+        return desc.type == DataType::kHALF && desc.format == TensorFormat::kCHW32;
+    }
+    if ((pos == 2) && (mOutputFp16Flag == 0))
+    {
+        //std::cout << "mOutputFp16Flag in supportsformat: " << mOutputFp16Flag << std::endl;
+        return (desc.type == DataType::kINT8 && desc.format == TensorFormat::kCHW32);
+    }
+    else if ((pos == 2) && (mOutputFp16Flag == 1)) 
+    {
+        //std::cout << "mOutputFp16Flag in supportsformat: " << mOutputFp16Flag << std::endl;
+        return (desc.type == DataType::kHALF && desc.format == TensorFormat::kCHW32);    
+    }
+    return desc.format == TensorFormat::kCHW32;
+}
 void SkipLayerNormInterleavedPluginBase::configurePlugin(const DynamicPluginTensorDesc* inputs, int32_t nbInputs,
     const DynamicPluginTensorDesc* outputs, int32_t nbOutputs) noexcept
 {
     // Validate input arguments
     PLUGIN_ASSERT(nbOutputs == getNbOutputs());
     PLUGIN_ASSERT(nbInputs == 2);
-    PLUGIN_ASSERT(DataType::kINT8 == inputs[0].desc.type);
+    //PLUGIN_ASSERT(DataType::kINT8 == inputs[0].desc.type);
+    PLUGIN_ASSERT(DataType::kHALF == inputs[0].desc.type);
     PLUGIN_ASSERT(DataType::kINT8 == inputs[1].desc.type);
 
     const auto& inDims0 = inputs[0].desc.dims;
@@ -203,6 +265,7 @@ void SkipLayerNormInterleavedPluginBase::configurePlugin(const DynamicPluginTens
     TRT_UNUSED inDims1;
 
     PLUGIN_ASSERT(inDims0.nbDims == inDims1.nbDims);
+
     PLUGIN_ASSERT(std::equal(inDims0.d, inDims0.d + inDims0.nbDims, inDims1.d));
 
     mParamWordsize = getElementSize(param_type);
@@ -230,11 +293,23 @@ void checkDescs(const PluginTensorDesc& iDesc, const PluginTensorDesc& sDesc, co
     PLUGIN_ASSERT(iDesc.dims.d[0] == 1);
     PLUGIN_ASSERT(iDesc.dims.d[3] == 1);
     PLUGIN_ASSERT(iDesc.format == TensorFormat::kCHW32);
-    PLUGIN_ASSERT(iDesc.type == DataType::kINT8);
+    //PLUGIN_ASSERT(iDesc.type == DataType::kINT8);
+    PLUGIN_ASSERT(iDesc.type == DataType::kHALF);
     PLUGIN_ASSERT(iDesc.format == sDesc.format);
     PLUGIN_ASSERT(iDesc.format == oDesc.format);
-    PLUGIN_ASSERT(iDesc.type == sDesc.type);
-    PLUGIN_ASSERT(iDesc.type == oDesc.type);
+    PLUGIN_ASSERT(sDesc.type == DataType::kINT8);
+    PLUGIN_ASSERT((oDesc.type == DataType::kHALF) || (oDesc.type == DataType::kINT8));
+    //PLUGIN_ASSERT(iDesc.type == sDesc.type);
+    //PLUGIN_ASSERT(iDesc.type == oDesc.type);
+    //PLUGIN_ASSERT(sDesc.type == oDesc.type)
+}
+
+inline size_t ProductDim(const nvinfer1::Dims& dims) {
+  size_t v = 1;
+  for (int i = 0; i < dims.nbDims; i++) {
+    v *= dims.d[i];
+  }
+  return v;
 }
 
 int32_t SkipLayerNormInterleavedPluginHFace::enqueue(const PluginTensorDesc* inputDesc,
@@ -243,29 +318,85 @@ int32_t SkipLayerNormInterleavedPluginHFace::enqueue(const PluginTensorDesc* inp
 {
     // Input shape: 1x(hxd)xtotalx1
     const auto iDesc = inputDesc[0];
+    //std::cout << "input 0 type: " << static_cast<int>(iDesc.type) << std::endl;
     const auto sDesc = inputDesc[1];
+    //std::cout << "input 1 type: " << static_cast<int>(sDesc.type) << std::endl;
     const auto oDesc = outputDesc[0];
+    //std::cout << "output 0 skln type: " << static_cast<int>(oDesc.type) << std::endl;
     checkDescs(iDesc, sDesc, oDesc);
 
     const int32_t ld = iDesc.dims.d[1];
     const int32_t total = iDesc.dims.d[2];
     const float dqScaleIn = iDesc.scale;
     const float dqScaleSkip = sDesc.scale;
-    const float qScale = 1.F / oDesc.scale;
-    const int8_t* input = static_cast<const int8_t*>(inputs[0]);
+    //const float qScale = 1.F;
+    const int8_t* input_int = static_cast<const int8_t*>(inputs[0]);
+    const half* input_half = static_cast<const half*>(inputs[0]);
     const int8_t* skip = static_cast<const int8_t*>(inputs[1]);
-    int8_t* output = static_cast<int8_t*>(outputs[0]);
+    int8_t* output_int = static_cast<int8_t*>(outputs[0]);
+    half* output_half = static_cast<half*>(outputs[0]);
     const half* gamma = static_cast<const half*>(mGammaDev.get());
     const half* beta = static_cast<const half*>(mBetaDev.get());
 
+    //std::cout << "scale in: " << dqScaleIn << std::endl;
+    //std::cout << "scale skip: " << dqScaleSkip << std::endl;
+    //std::cout << "scale out: " << qScale << std::endl;
+    size_t num1 = ProductDim(iDesc.dims);
+    size_t num2 = ProductDim(sDesc.dims);
+    size_t size1 = sizeof(half) * num1;
+    size_t size2 = sizeof(int8_t) * num2;
+    half* d_in1 = reinterpret_cast<half*>(malloc(size1));
+    int8_t* d_in2 = reinterpret_cast<int8_t*>(malloc(size2));
+    cudaMemcpy(d_in1, input_half, size1, cudaMemcpyDeviceToHost);
+    cudaMemcpy(d_in2, skip, size2, cudaMemcpyDeviceToHost);
+    std::cout << "input1 in skln int8 plugin: ";
+    for (int i=0; i<20; i++) {
+      std::cout << +d_in1[i] << ", ";
+    }
+    std::cout << std::endl;
+    std::cout << "input2 in skln int8 plugin: ";
+    for (int i=0; i<20; i++) {
+      std::cout << +d_in2[i] << ", ";
+    }
+    std::cout << std::endl;
+
+    int status = -1;
+    std::cout << "mOutputFp16Flag in enqueue: " << static_cast<int>(mOutputFp16Flag) << std::endl;
     if (total < 4096)
     {
-        return launch_small_hface(stream, ld, total, input, skip, beta, gamma, output, dqScaleIn, dqScaleSkip, qScale);
+        if (mOutputFp16Flag == 0) {
+            const float qScale = 1.F / oDesc.scale;
+            status = launch_small_hface(stream, ld, total, input_half, skip, beta, gamma, output_int, dqScaleIn, dqScaleSkip, qScale);
+            size_t num3 = ProductDim(oDesc.dims);
+            size_t size3 = sizeof(int8_t) * num3;
+            int8_t* d_out = reinterpret_cast<int8_t*>(malloc(size3));
+            cudaMemcpy(d_out, output_int, size3, cudaMemcpyDeviceToHost);
+            std::cout << "output in skln int8 plugin int8: ";
+            for (int i=0; i<20; i++) {
+              std::cout << +d_out[i] << ",";
+            }
+            std::cout << std::endl;
+        } else if (mOutputFp16Flag == 1) {
+            std::cout << "skln output fp16" << std::endl;
+            status = launch_small_hface_output_half(stream, ld, total, input_half, skip, beta, gamma, output_half, dqScaleIn, dqScaleSkip);
+            size_t num4 = ProductDim(oDesc.dims);
+            size_t size4 = sizeof(half) * num4;
+            half* d_out_half = reinterpret_cast<half*>(malloc(size4));
+            cudaMemcpy(d_out_half, output_half, size4, cudaMemcpyDeviceToHost);
+            std::cout << "output in skln int8 plugin fp16: ";
+            for (int i=0; i<20; i++) {
+              std::cout << +d_out_half[i] << ",";
+            }
+            std::cout << std::endl;
+        }
     }
     else
     {
-        return launch_large_hface(stream, ld, total, input, skip, beta, gamma, output, dqScaleIn, dqScaleSkip, qScale);
-    }
+        const float qScale = 1.F / oDesc.scale;
+        status = launch_large_hface(stream, ld, total, input_int, skip, beta, gamma, output_int, dqScaleIn, dqScaleSkip, qScale);
+    } 
+    
+    return status;
 }
 
 int32_t SkipLayerNormInterleavedPluginMTron::enqueue(const PluginTensorDesc* inputDesc, const PluginTensorDesc* outputDesc,
@@ -377,6 +508,17 @@ void SkipLayerNormInterleavedPluginBase::serialize(void* buffer) const noexcept
     serFromDev(d, static_cast<char*>(mGammaDev.get()), mLd * mParamWordsize);
 }
 
+void SkipLayerNormInterleavedPluginHFace::serialize(void* buffer) const noexcept
+{
+    //std::cout << "mOutputFp16Flag in serialize: " << mOutputFp16Flag << std::endl;
+    serialize_value(&buffer, mLd);
+    serialize_value(&buffer, mOutputFp16Flag);
+
+    char* d = static_cast<char*>(buffer);
+    serFromDev(d, static_cast<char*>(mBetaDev.get()), mLd * mParamWordsize);
+    serFromDev(d, static_cast<char*>(mGammaDev.get()), mLd * mParamWordsize);
+}
+
 void SkipLayerNormInterleavedPluginBase::destroy() noexcept
 {
     // This gets called when the network containing plugin is destroyed
@@ -423,6 +565,7 @@ SkipLayerNormInterleavedPluginHFaceCreator::SkipLayerNormInterleavedPluginHFaceC
 {
 }
 
+
 SkipLayerNormInterleavedPluginMTronCreator::SkipLayerNormInterleavedPluginMTronCreator()
     : SkipLayerNormInterleavedPluginBaseCreator()
 {
@@ -450,8 +593,6 @@ const PluginFieldCollection* SkipLayerNormInterleavedPluginBaseCreator::getField
 
 void buildBetaAndGamma(const PluginFieldCollection* fc, Weights& beta, Weights& gamma)
 {
-    plugin::validateRequiredAttributesExist({"beta", "gamma"}, fc);
-
     for (int32_t i = 0; i < fc->nbFields; i++)
     {
         std::string field_name(fc->fields[i].name);
@@ -491,11 +632,54 @@ IPluginV2* SkipLayerNormInterleavedPluginHFaceCreator::createPlugin(
     {
         BERT_DEBUG_MSG("SkipLayerNormInterleavedPluginHFaceCreator createPlugin");
 
+        int32_t output_fp16_flag = -1;
         Weights beta{DataType::kFLOAT, nullptr, 0};
         Weights gamma{DataType::kFLOAT, nullptr, 0};
-        buildBetaAndGamma(fc, beta, gamma);
+        
+        for (int32_t i = 0; i < fc->nbFields; i++)
+        {
+            std::string field_name(fc->fields[i].name);
 
-        return new SkipLayerNormInterleavedPluginHFace(name, beta, gamma);
+            if (field_name.compare("beta") == 0)
+            {
+                BERT_DEBUG_MSG("Building beta...");
+                beta.values = fc->fields[i].data;
+                beta.count = fc->fields[i].length;
+                beta.type = fieldTypeToDataType(fc->fields[i].type);
+            }
+
+            if (field_name.compare("gamma") == 0)
+            {
+                BERT_DEBUG_MSG("Building gamma...");
+                gamma.values = fc->fields[i].data;
+                gamma.count = fc->fields[i].length;
+                gamma.type = fieldTypeToDataType(fc->fields[i].type);
+            }
+ 
+            if (field_name.compare("output_fp16_flag") == 0)
+            {
+                output_fp16_flag = *static_cast<int32_t const*>(fc->fields[i].data);
+                BERT_DEBUG_VALUE("Building output fp16 flag: ", output_fp16_flag);
+            }
+        }
+       
+        //std::cout << "output fp16 flag in create plugin: " << output_fp16_flag << std::endl;
+        if (beta.count <= 0 || beta.values == nullptr)
+        {
+            gLogError << "SkipLayerNorm: invalid beta" << std::endl;
+        }
+
+        if (gamma.count <= 0 || gamma.values == nullptr)
+        {
+            gLogError << "SkipLayerNorm: invalid gamma" << std::endl;
+        }
+        
+        if (output_fp16_flag != 0 && output_fp16_flag != 1)
+        {
+            gLogError << "SkipLayerNorm:: invalid output_fp16_flag" << std::endl;
+        }
+
+        return new SkipLayerNormInterleavedPluginHFace(name, beta, gamma, output_fp16_flag);
     }
     catch (std::exception const& e)
     {

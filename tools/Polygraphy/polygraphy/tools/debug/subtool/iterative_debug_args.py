@@ -223,8 +223,7 @@ class ArtifactSortArgs(BaseArgs):
             "--artifacts-dir",
             metavar="DIR",
             dest="artifacts_dir",
-            help="The directory in which to move artifacts and sort them into 'good' and 'bad'. "
-            "Defaults to a directory named `polygraphy_artifacts` in the current directory. ",
+            help="The directory in which to move artifacts and sort them into 'good' and 'bad'. ",
             default="polygraphy_artifacts",
         )
 
@@ -461,8 +460,7 @@ class IterativeDebugArgs(BaseArgs):
     def skip_iteration(self, success=None):
         """
         Indicate that the current iteration should be skipped prior to running checks.
-        This may only be invoked from the ``make_iter_art_func()`` callback and may
-        **only** be used if ``make_iter_art_func()`` does not return anything.
+        This may only be invoked from the ``make_iter_art_func()`` callback.
 
         Args:
             success (bool):
@@ -607,9 +605,9 @@ class IterativeDebugArgs(BaseArgs):
                     duration_in_sec = time.time() - start_time
                     if iter_success:
                         num_passed += 1
-                        G_LOGGER.finish(f"PASSED | Iteration {index + 1} | Duration {duration_in_sec}s")
+                        G_LOGGER.finish(f"PASSED | Iteration {index} | Duration {duration_in_sec}s")
                     else:
-                        G_LOGGER.error(f"FAILED | Iteration {index + 1} | Duration {duration_in_sec}s")
+                        G_LOGGER.error(f"FAILED | Iteration {index} | Duration {duration_in_sec}s")
 
                 # We must include the suffix in the debug replay key to disambiguate
                 debug_replay_key = f"_N{index}" + (("_" + suffix) if suffix else "")
@@ -628,7 +626,6 @@ class IterativeDebugArgs(BaseArgs):
                         stack.callback(try_remove(self.iteration_info_path))
 
                     extra_advance_args = []
-                    do_check = True
                     if make_iter_art_func is not None:
                         try:
                             ret = make_iter_art_func()
@@ -636,7 +633,8 @@ class IterativeDebugArgs(BaseArgs):
                                 extra_advance_args = [ret]
                         except IterativeDebugArgs.SkipIteration as err:
                             success = err.success
-                            do_check = False
+                            log_status(success, start_time)
+                            continue
                         except StopIteration:
                             break
 
@@ -653,9 +651,8 @@ class IterativeDebugArgs(BaseArgs):
                     debug_replay[debug_replay_key] = [False, extra_advance_args]
                     save_replay(debug_replay, suffix="_skip_current")
 
-                    if do_check:
-                        success = self.arg_groups[CheckCmdArgs].run_check(self.iter_artifact_path)
-                        self.arg_groups[ArtifactSortArgs].sort_artifacts(success, suffix=debug_replay_key)
+                    success = self.arg_groups[CheckCmdArgs].run_check(self.iter_artifact_path)
+                    self.arg_groups[ArtifactSortArgs].sort_artifacts(success, suffix=debug_replay_key)
 
                     debug_replay[debug_replay_key] = [success, extra_advance_args]
                     save_replay(debug_replay, "debug replay")

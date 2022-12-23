@@ -39,15 +39,6 @@ from NNDF.logger import G_LOGGER
 # externals
 # None, there should be no external dependencies for testing purposes.
 
-# Program-wide constants for passing in valid frameworks.
-FRAMEWORK_NATIVE = "native"
-FRAMEWORK_TENSORRT = "trt"
-FRAMEWORK_ONNXRT = "onnxrt"
-VALID_FRAMEWORKS = [
-    FRAMEWORK_NATIVE,
-    FRAMEWORK_ONNXRT,
-    FRAMEWORK_TENSORRT
-]
 
 class MetadataArgparseInteropMixin:
     """Add argparse support where the class can add new arguments to an argparse object."""
@@ -89,12 +80,10 @@ class NetworkCommand(metaclass=ABCMeta):
     DEFAULT_NUMBER = 1
     DEFAULT_WARMUP = 3
     DEFAULT_DURATION = 0.0
-    DEFAULT_PERCENTILE = 50
 
     def __init__(self, network_config: NNConfig, description: str):
         self.config = network_config()
         self.description = description
-        self.framework_name = None
         self._parser = argparse.ArgumentParser(description=description, conflict_handler="resolve")
 
     def __call__(self):
@@ -175,12 +164,6 @@ class NetworkCommand(metaclass=ABCMeta):
             help="Minimal duration of inference iterations to measure.",
             default=self.DEFAULT_DURATION,
         )
-        timing_group.add_argument(
-            "--percentile",
-            type=int,
-            help="Key percentile number for time measurement.",
-            default=self.DEFAULT_PERCENTILE,
-        )
 
     def check_network_metadata_is_supported(self, metadata: NetworkMetadata) -> None:
         """
@@ -213,7 +196,7 @@ class NetworkCommand(metaclass=ABCMeta):
         from NNDF.checkpoints import NNSemanticCheckpoint
         checkpoint = NNSemanticCheckpoint(
             "checkpoint.toml",
-            framework=self.framework_name,
+            framework="native",
             network_name=self.config.network_name,
             metadata=self.metadata,
         )
@@ -228,16 +211,11 @@ class NetworkCommand(metaclass=ABCMeta):
                 number=int(self._args.number),
                 warmup=int(self._args.warmup),
                 duration=int(self._args.duration),
-                percentile=int(self._args.percentile),
             )
 
 
 class FrameworkCommand(NetworkCommand):
     """Base class that is associated with Frameworks related scripts."""
-
-    def __init__(self, network_config: NNConfig, description: str):
-        super().__init__(network_config, description)
-        self.framework_name = FRAMEWORK_NATIVE
 
     @abstractmethod
     def run_framework(
@@ -251,7 +229,6 @@ class FrameworkCommand(NetworkCommand):
         batch_size: int,
         args: object = None,
         benchmarking_mode: bool = False,
-        perplexity_reference: List[str] = None,
     ) -> Union[List[NetworkResult], BenchmarkingResult]:
         pass
 
@@ -260,7 +237,7 @@ class FrameworkCommand(NetworkCommand):
 
         checkpoint = self.load_nn_semantic_checkpoint()
 
-        network_results, ppl_results = self.run_framework(
+        network_results = self.run_framework(
             metadata=self.metadata,
             network_input=list(checkpoint.inputs()),
             working_directory=self._args.working_dir,
@@ -271,13 +248,11 @@ class FrameworkCommand(NetworkCommand):
             batch_size=self._args.batch_size,
             args=self._args,
             benchmarking_mode=False,
-            perplexity_reference=list(checkpoint.labels()),
         )
 
         return NetworkCheckpointResult(
             network_results=network_results,
             accuracy=checkpoint.accuracy(network_results),
-            perplexity=(sum(ppl_results) / len(ppl_results) if ppl_results else None),
         )
 
     def run_benchmark(self):
@@ -318,7 +293,6 @@ class TRTInferenceCommand(NetworkCommand):
         frameworks_cmd: FrameworkCommand,
     ):
         super().__init__(network_config, description)
-        self.framework_name = FRAMEWORK_TENSORRT
         # Should be set by
         self.frameworks_cmd = frameworks_cmd()
 
@@ -336,8 +310,6 @@ class TRTInferenceCommand(NetworkCommand):
         batch_size: int = 1,
         args: object = None,
         benchmarking_mode: bool = False,
-        preview_dynamic_shapes: bool = False,
-        perplexity_reference: List[str] = None,
     ) -> Union[List[NetworkResult], BenchmarkingResult]:
         pass
 
@@ -348,7 +320,7 @@ class TRTInferenceCommand(NetworkCommand):
 
         checkpoint = self.load_nn_semantic_checkpoint()
 
-        network_results, ppl_results = self.run_trt(
+        network_results = self.run_trt(
             metadata=self.metadata,
             onnx_fpaths=onnx_fpaths,
             network_input=list(checkpoint.inputs()),
@@ -360,14 +332,11 @@ class TRTInferenceCommand(NetworkCommand):
             batch_size=self._args.batch_size,
             args=self._args,
             benchmarking_mode=False,
-            preview_dynamic_shapes=self._args.preview_dynamic_shapes,
-            perplexity_reference=list(checkpoint.labels()),
         )
 
         return NetworkCheckpointResult(
             network_results=network_results,
             accuracy=checkpoint.accuracy(network_results),
-            perplexity=(sum(ppl_results) / len(ppl_results) if ppl_results else None),
         )
 
     def run_benchmark(self):
@@ -388,31 +357,9 @@ class TRTInferenceCommand(NetworkCommand):
             batch_size=self._args.batch_size,
             args=self._args,
             benchmarking_mode=True,
-            preview_dynamic_shapes=self._args.preview_dynamic_shapes
         )
 
         return network_results
-
-    def add_args(self, parser) -> argparse.ArgumentParser:
-        super().add_args(parser)
-        trt_group = parser.add_argument_group("trt")
-        trt_group.add_argument(
-            "--preview-dynamic-shapes",
-            help="Use the FASTER_DYNAMIC_SHAPES_0805 preview feature when building the TensorRT engine",
-            action="store_true",
-        )
-
-        trt_benchmarking_group = parser.add_argument_group("trt benchmarking group")
-        trt_benchmarking_group.add_argument(
-            "--input-profile-max-len",
-            type=int,
-            help="Specify max input sequence length in TRT engine profile. (default: max supported sequence length)",
-        )
-        trt_benchmarking_group.add_argument(
-            "--output-profile-max-len",
-            type=int,
-            help="Specify max output sequence length in TRT engine profile. (default: max supported sequence length)",
-        )
 
     def args_to_network_metadata(self, args) -> NetworkMetadata:
         return self.config.MetadataClass.from_inference_args(args)
@@ -436,7 +383,6 @@ class OnnxRTCommand(NetworkCommand):
         frameworks_cmd: FrameworkCommand,
     ):
         super().__init__(network_config, description)
-        self.framework_name = FRAMEWORK_ONNXRT
         # Should be set by
         self.frameworks_cmd = frameworks_cmd()
 
@@ -471,14 +417,11 @@ class OnnxRTCommand(NetworkCommand):
             keep_torch_model=self._args.cleanup,
             timing_profile=self.get_timing_profile(),
             batch_size=self._args.batch_size,
-            args=self._args,
-            benchmarking_mode=False,
         )
 
         return NetworkCheckpointResult(
             network_results=network_results,
             accuracy=checkpoint.accuracy(network_results),
-            perplexity=None,
         )
 
     def run_benchmark(self):
