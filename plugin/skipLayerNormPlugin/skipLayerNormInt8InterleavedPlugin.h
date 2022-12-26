@@ -98,6 +98,7 @@ public:
     // IPluginV2 Methods
     int32_t initialize() noexcept override;
     void terminate() noexcept override;
+    size_t getSerializationSize() const noexcept override;
     void serialize(void* buffer) const noexcept override;
     void destroy() noexcept override;
     const char* getPluginVersion() const noexcept override;

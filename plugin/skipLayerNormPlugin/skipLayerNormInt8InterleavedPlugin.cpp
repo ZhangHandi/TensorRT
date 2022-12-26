@@ -499,6 +499,11 @@ size_t SkipLayerNormInterleavedPluginBase::getSerializationSize() const noexcept
     return 2 * mParamWordsize * mLd + sizeof(mLd);
 }
 
+size_t SkipLayerNormInterleavedPluginHFace::getSerializationSize() const noexcept
+{
+    return 2 * mParamWordsize * mLd + sizeof(mLd) + sizeof(mOutputFp16Flag);
+}
+
 void SkipLayerNormInterleavedPluginBase::serialize(void* buffer) const noexcept
 {
     serialize_value(&buffer, mLd);
