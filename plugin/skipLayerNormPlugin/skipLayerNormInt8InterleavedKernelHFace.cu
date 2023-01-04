@@ -282,12 +282,12 @@ __global__ void skiplnDQQ_vec3(const int32_t ld, const half* input, const int8_t
     for (int32_t it = 0; it < VPT; it++)
     {
         // DQ input and skip
-        const float tmp_in = in_local[it];
-        //printf("in local: %d\n", tmp_in);
+    //    const float tmp_in = in_local[it];
+        const float tmp_in = __half2float(in_local[it]);      
+//printf("float tmp_in: %f , in_local[it]: %f\n", tmp_in, __half2float(in_local[it]));
         const float tmp_skip = skip_local[it];
-        //printf("skip local: %d\n", tmp_skip);
         //in_local_dq[it] = dqScaleIn * tmp_in + dqScaleSkip * tmp_skip;
-        in_local_dq[it] = tmp_in + dqScaleSkip * tmp_skip;
+        in_local_dq[it] = __float2half(tmp_in + dqScaleSkip * tmp_skip);
         const half tmp = rld * in_local_dq[it];
         const half2 tmp2 = __halves2half2(tmp, tmp * in_local_dq[it]);
         stats_local = stats_local + tmp2;
@@ -327,10 +327,10 @@ __global__ void skiplnDQQ_vec3(const int32_t ld, const half* input, const int8_t
 template <int32_t TPB, int32_t VPT>
 __global__ void skiplnDQQ_vec3_output_half(const int32_t ld, const half* input, const int8_t* skip, half* output, const half* beta, const half* gamma, const float dqScaleIn, const float dqScaleSkip, const int32_t total)
 {
-    //const int32_t hinner = threadIdx.x % 4;
-    //const int32_t houter = threadIdx.x / 4;
-    const int32_t hinner = threadIdx.x % 2;
-    const int32_t houter = threadIdx.x / 2;
+    const int32_t hinner = threadIdx.x % 4;
+    const int32_t houter = threadIdx.x / 4;
+    //const int32_t hinner = threadIdx.x % 2;
+    //const int32_t houter = threadIdx.x / 2;
    
     const int32_t tidx = threadIdx.x;
     const int32_t bidx = blockIdx.x;
@@ -381,20 +381,14 @@ __global__ void skiplnDQQ_vec3_output_half(const int32_t ld, const half* input, 
      __syncthreads();
 
      //static_assert(VPT % 4 == 0, "");
-     //half out_local[VPT/4];
-     static_assert(VPT % 2 == 0, "");
-     half2 out_local[VPT / 2];
+     half out_local[VPT];
+     //static_assert(VPT % 2 == 0, "");
+     //half2 out_local[VPT / 2];
 #pragma unroll
-     for (int it = 0; it < VPT; it++)
-     {
-         const float tmp0 = gamma_local[it*2+0] * (in_local_dq[it*2+0] - mu) * rsigma + beta_local[it*2+0];
-         const float tmp1 = gamma_local[it*2+1] * (in_local_dq[it*2+1] - mu) * rsigma + beta_local[it*2+1];
-         __half2 all_tmp = __floats2half2_rn(tmp0, tmp1);
-         //__half all_tmp = __float2half(tmp0);
-         
-         out_local[it] = reinterpret_cast<const half2&>(all_tmp);
-     }
-     
+    for (int it = 0; it < VPT; it++)
+    {
+        out_local[it] = gamma_local[it] * (in_local_dq[it] - mu) * rsigma + beta_local[it];
+    }
      copy<sizeof(half) * VPT>(out_local, &output[idx]);
 }
 
@@ -419,7 +413,7 @@ int launch_small_hface(cudaStream_t stream, const int32_t ld, const int32_t tota
     }
     else
     {
-        std::cout << "SkipLayerNormDQQ - FATAL: unsupported hidden layer size: " << ld << std::endl;
+        //std::cout << "SkipLayerNormDQQ - FATAL: unsupported hidden layer size: " << ld << std::endl;
         return STATUS_FAILURE;
     }
     return cudaPeekAtLastError();
@@ -434,9 +428,28 @@ int launch_small_hface_output_half(cudaStream_t stream, const int32_t ld, const 
     constexpr int32_t VPT = 16 / sizeof(half); // 8
     if (ld == 768)
     {
+/*
+half input_host[100];
+cudaMemcpy(input_host, input, 100* sizeof(half), cudaMemcpyDeviceToHost);
+for(int i=0;i<100;++i){
+    std::cout<< "input_host[i]" << static_cast<float>(input_host[i])<<std::endl;
+}
+int8_t skip_host[100];
+cudaMemcpy(skip_host, skip, 100* sizeof(int8_t), cudaMemcpyDeviceToHost);
+for(int i=0;i<100;++i){
+    std::cout<< "skip_host[i]" << static_cast<float>(skip_host[i])<<std::endl;
+}
+*/
         constexpr int32_t TPB = 768 / VPT;
         skiplnDQQ_vec3_output_half<TPB, VPT>
             <<<gridSize, TPB, 0, stream>>>(ld, input, skip, output, beta, gamma, dqScaleIn, dqScaleSkip, total);
+/*            
+half out_host[100];
+cudaMemcpy(out_host, output, 100* sizeof(half), cudaMemcpyDeviceToHost);
+for(int i=0;i<100;++i){
+    std::cout<< "out_host[i]" << static_cast<float>(out_host[i])<<std::endl;
+}
+*/
     }
     else if (ld == 1024)
     {
@@ -446,7 +459,7 @@ int launch_small_hface_output_half(cudaStream_t stream, const int32_t ld, const 
     }
     else 
     {
-        std::cout << "SkipLayerNormDQQOutputHalf - FATAL: unsupported hidden layer size: " << ld << std::endl;
+       // std::cout << "SkipLayerNormDQQOutputHalf - FATAL: unsupported hidden layer size: " << ld << std::endl;
         return STATUS_FAILURE;
     }
     return cudaPeekAtLastError();
